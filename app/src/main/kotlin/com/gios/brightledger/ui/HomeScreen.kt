@@ -1,5 +1,9 @@
 package com.gios.brightledger.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,13 +21,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightledger.hw.WheelScroll
+import com.gios.brightledger.ledger.Recurring
+import com.gios.brightledger.ledger.Summary
 import com.gios.brightledger.simplefin.Money
+import com.gios.brightledger.util.ChromeScroll
 import com.gios.brightledger.ui.theme.Dim
 import com.gios.brightledger.ui.theme.Faint
 
@@ -48,12 +59,31 @@ fun HomeScreen(
     val recurring by vm.recurring.collectAsStateWithLifecycle()
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val pinned by vm.pinned.collectAsStateWithLifecycle()
+    val hidden by vm.hideTotals.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     WheelScroll(listState)
 
-    // One refresh per foregrounding. The Bridge refreshes upstream banks on its own schedule,
-    // so hammering it on every recomposition would cost battery and change nothing.
+    // The bar gets out of the way while you read down and comes back when you reach for it.
+    // The rule is in ChromeScroll because the interesting case — a list at its last pixel
+    // clamping its own scroll when the bar hides, which reads as an up-scroll and starts an
+    // oscillation — is not something anyone spots by reading the composable.
+    var barVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        var reference = ChromeScroll.Position(0, 0, true)
+        snapshotFlow {
+            ChromeScroll.Position(
+                index = listState.firstVisibleItemIndex,
+                offset = listState.firstVisibleItemScrollOffset,
+                canScrollForward = listState.canScrollForward,
+            )
+        }.collect { position ->
+            ChromeScroll.hidden(reference, position)?.let { barVisible = !it }
+            if (ChromeScroll.advanced(reference, position)) reference = position
+        }
+    }
+
     LaunchedEffect(Unit) { vm.refresh() }
 
     val currency = accounts.firstOrNull()?.currency
@@ -61,34 +91,59 @@ fun HomeScreen(
     Scaffold(
         containerColor = Color.Black,
         bottomBar = {
-            ActionBar(
-                listOf(
-                    BarAction(if (syncing) "SYNCING" else "SYNC") { vm.refresh() },
-                    BarAction("REPEATS", onOpenRecurring),
-                    BarAction("SETTINGS", onOpenSettings),
-                ),
-            )
+            AnimatedVisibility(
+                visible = barVisible,
+                // Height only, never alpha. AnimatedVisibility's defaults include a fade,
+                // and a bar at partial alpha with the list moving underneath reads as a
+                // rendering bug rather than as an animation.
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                ActionBar(
+                    listOf(
+                        BarAction(if (syncing) "SYNCING" else "SYNC") { vm.refresh() },
+                        BarAction("REPEATS", onOpenRecurring),
+                        BarAction("SETTINGS", onOpenSettings),
+                    ),
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            item { SpendHeader(totals, currency, vm.lastSyncSeconds(), syncing) }
+            item {
+                SpendHeader(
+                    totals = totals,
+                    currency = currency,
+                    lastSync = vm.lastSyncSeconds(),
+                    syncing = syncing,
+                    hidden = hidden,
+                    onToggleHidden = vm::toggleHideTotals,
+                )
+            }
 
             if (accounts.isNotEmpty()) {
                 item { SectionLabel("Accounts") }
                 items(accounts, key = { it.id }) { account ->
-                    AccountRow(account)
+                    AccountRow(
+                        account = account,
+                        pinned = account.id in pinned,
+                        hideBalance = hidden,
+                        onLongClick = { vm.togglePin(account.id) },
+                    )
                 }
             }
 
             if (recurring.isNotEmpty()) {
                 item { SectionLabel("Repeats") }
                 item {
-                    val monthly = recurring.sumOf { com.gios.brightledger.ledger.Recurring.monthlyCostCents(it) }
+                    val monthly = recurring.sumOf { Recurring.monthlyCostCents(it) }
                     MenuRow(
-                        label = Money.symbol(currency) + Money.format(monthly) + " a month",
+                        label = Masked.amount(Money.symbol(currency), hidden) {
+                            Money.format(monthly)
+                        } + " a month",
                         sub = recurring.size.toString() + " repeating charges",
                         onClick = onOpenRecurring,
                     )
@@ -107,6 +162,10 @@ fun HomeScreen(
                     }
                 }
             } else {
+                // Transaction amounts are deliberately never masked. Hiding is for the
+                // numbers someone can read at a glance and learn something from — the
+                // balance and the month. A line item is only meaningful if you are already
+                // reading the screen properly.
                 items(feed, key = { it.accountId + "/" + it.txnId }) { txn ->
                     TransactionRow(txn) { onOpenTransaction(txn.accountId, txn.txnId) }
                 }
@@ -125,24 +184,34 @@ fun HomeScreen(
  * Today's spend gets the display type and the month gets a line under it, rather than the
  * two sharing a row. On this panel a pair of large numbers side by side reads as one
  * comparison the user has to resolve; stacked, the big one is simply the answer.
+ *
+ * The whole block is tappable to reveal or re-hide. Putting that here rather than only in
+ * Settings is the difference between a privacy feature you use and one you turn on once.
  */
 @Composable
 private fun SpendHeader(
-    totals: com.gios.brightledger.ledger.Summary.Totals,
+    totals: Summary.Totals,
     currency: String?,
     lastSync: Long,
     syncing: Boolean,
+    hidden: Boolean,
+    onToggleHidden: () -> Unit,
 ) {
     val symbol = Money.symbol(currency)
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 28.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggleHidden)
+            .padding(start = 16.dp, end = 16.dp, top = 28.dp),
+    ) {
         Text(
-            "SPENT TODAY",
+            if (hidden) "SPENT TODAY  ·  HIDDEN" else "SPENT TODAY",
             style = MaterialTheme.typography.labelSmall,
             color = Faint,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            symbol + Money.format(totals.todayCents),
+            Masked.amount(symbol, hidden) { Money.format(totals.todayCents) },
             style = MaterialTheme.typography.displaySmall,
             color = Color.White,
             maxLines = 1,
@@ -154,7 +223,8 @@ private fun SpendHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                symbol + Money.format(totals.monthCents) + " this month",
+                Masked.amount(symbol, hidden) { Money.format(totals.monthCents) } +
+                    " this month",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Dim,
                 maxLines = 1,

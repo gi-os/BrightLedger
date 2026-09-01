@@ -35,6 +35,7 @@ fun SettingsScreen(
 ) {
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     val connections by vm.connections.collectAsStateWithLifecycle()
+    val hideTotals by vm.hideTotals.collectAsStateWithLifecycle()
     var confirmDisconnect by remember { mutableStateOf(false) }
     var pinSet by remember { mutableStateOf(Vault.isPinSet()) }
     val scroll = rememberScrollState()
@@ -72,6 +73,14 @@ fun SettingsScreen(
             )
 
             SectionLabel("Security")
+            ToggleRow(
+                label = "Hide amounts",
+                sub = "Start with the spend total and balances masked. Tap the header on the " +
+                    "home screen to reveal them, and they re-hide when the app goes to the " +
+                    "background.",
+                checked = hideTotals,
+                onToggle = vm::setHideTotalsDefault,
+            )
             ToggleRow(
                 label = "PIN lock",
                 sub = if (pinSet) {

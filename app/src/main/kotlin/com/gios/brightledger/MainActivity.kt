@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
             BrightLedgerTheme {
                 val nav = rememberNavController()
                 val vm: LedgerViewModel = viewModel()
+                viewModelRef = vm
                 val vaultState by Vault.state.collectAsStateWithLifecycle()
                 val connected by vm.connected.collectAsStateWithLifecycle()
 
@@ -236,5 +237,17 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         Vault.lock()
+        // Anything revealed this session goes back under. A reveal that survived the app
+        // leaving the screen would make the setting decorative.
+        viewModelRef?.onBackgrounded()
     }
+
+    /**
+     * The view model, so `onStop` can reach it.
+     *
+     * `viewModel()` is only callable from composition, and `onStop` is not composition. A
+     * plain reference set once during setContent is the smallest thing that bridges the two;
+     * it is cleared with the activity.
+     */
+    private var viewModelRef: LedgerViewModel? = null
 }

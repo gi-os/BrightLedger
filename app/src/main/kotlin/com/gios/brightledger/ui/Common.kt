@@ -62,9 +62,15 @@ data class BarAction(val label: String, val onClick: () -> Unit)
  * actions split the bar evenly, which is what makes the confirm step readable —
  * cancel and remove carry the same weight rather than one being a stray tap away.
  */
+/**
+ * [opaque] exists because this bar is now animated in and out over a scrolling list. A bar
+ * with no background of its own is only opaque by luck — it works while the page behind it
+ * happens to be the same colour, and stops the moment anything slides under it. Painting the
+ * fill edge to edge, before the padding, is what makes that not a coincidence.
+ */
 @Composable
-fun ActionBar(actions: List<BarAction>) {
-    Column {
+fun ActionBar(actions: List<BarAction>, opaque: Boolean = true) {
+    Column(if (opaque) Modifier.background(Color.Black) else Modifier) {
         Rule()
         Row(
             Modifier.fillMaxWidth().height(64.dp),

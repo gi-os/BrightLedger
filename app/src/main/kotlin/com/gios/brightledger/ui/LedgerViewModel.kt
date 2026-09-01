@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.gios.brightledger.data.AccountEntity
 import com.gios.brightledger.data.Connections
 import com.gios.brightledger.data.LedgerRepository
+import com.gios.brightledger.data.Prefs
 import com.gios.brightledger.data.SyncState
 import com.gios.brightledger.data.TransactionWithAccount
 import com.gios.brightledger.ledger.Recurring
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -28,8 +30,24 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = LedgerRepository.get(app)
     private val client = SimpleFinClient()
 
-    val accounts: StateFlow<List<AccountEntity>> = repo.dao.accounts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _pinned = MutableStateFlow(Prefs.pinned(app))
+    val pinned: StateFlow<Set<String>> = _pinned.asStateFlow()
+
+    /**
+     * Accounts with the pinned ones first.
+     *
+     * The default order is balance descending, which is a fine guess and usually the wrong
+     * one: the account you check is your current account, not your biggest. Pinning is the
+     * override, and it is applied here rather than in SQL because the pins are not in the
+     * database — see [Prefs] for why.
+     */
+    val accounts: StateFlow<List<AccountEntity>> =
+        combine(repo.dao.accounts(), _pinned) { list, pins ->
+            list.sortedWith(
+                compareByDescending<AccountEntity> { it.id in pins }
+                    .thenByDescending { it.balanceCents },
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val feed: StateFlow<List<TransactionWithAccount>> = repo.dao.feed()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -83,6 +101,16 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     private val _claiming = MutableStateFlow(false)
     val claiming: StateFlow<Boolean> = _claiming.asStateFlow()
 
+    /**
+     * Whether amounts are masked right now.
+     *
+     * Session state, seeded from the saved default and reset to it by [onBackgrounded]. A
+     * setting alone would be a preference; re-arming on background is what makes it useful
+     * when the phone is face-up on a table, and it matches how the PIN lock already behaves.
+     */
+    private val _hideTotals = MutableStateFlow(Prefs.hideTotalsByDefault(app))
+    val hideTotals: StateFlow<Boolean> = _hideTotals.asStateFlow()
+
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
@@ -113,6 +141,26 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     fun onVaultOpened() {
         refreshConnections()
         refresh()
+    }
+
+    fun togglePin(accountKey: String) {
+        Prefs.togglePin(getApplication(), accountKey)
+        _pinned.value = Prefs.pinned(getApplication())
+    }
+
+    /** Reveal or re-hide for this session only. The saved default is untouched. */
+    fun toggleHideTotals() {
+        _hideTotals.value = !_hideTotals.value
+    }
+
+    fun setHideTotalsDefault(hide: Boolean) {
+        Prefs.setHideTotalsByDefault(getApplication(), hide)
+        _hideTotals.value = hide
+    }
+
+    /** Called from `onStop`. Anything revealed this session goes back under. */
+    fun onBackgrounded() {
+        _hideTotals.value = Prefs.hideTotalsByDefault(getApplication())
     }
 
     fun dismissMessage() {

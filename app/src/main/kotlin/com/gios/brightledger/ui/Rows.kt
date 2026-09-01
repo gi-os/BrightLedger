@@ -1,6 +1,8 @@
 package com.gios.brightledger.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -79,18 +81,32 @@ fun TransactionRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AccountRow(account: AccountEntity, onClick: (() -> Unit)? = null) {
+fun AccountRow(
+    account: AccountEntity,
+    pinned: Boolean = false,
+    hideBalance: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+) {
     Row(
         Modifier
             .fillMaxWidth()
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .combinedClickable(
+                enabled = onClick != null || onLongClick != null,
+                onClick = { onClick?.invoke() },
+                onLongClick = onLongClick,
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                account.name,
+                // A leading square rather than a badge or a different weight. On a greyscale
+                // panel the only reliable signals are presence and position, and one glyph in
+                // front of the name reads at arm's length where a tint does not.
+                if (pinned) "▪  " + account.name else account.name,
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White,
                 maxLines = 1,
@@ -109,7 +125,9 @@ fun AccountRow(account: AccountEntity, onClick: (() -> Unit)? = null) {
         }
         Spacer(Modifier.width(12.dp))
         Text(
-            Money.symbol(account.currency) + Money.format(account.balanceCents),
+            Masked.amount(Money.symbol(account.currency), hideBalance) {
+                Money.format(account.balanceCents)
+            },
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White,
             textAlign = TextAlign.End,
