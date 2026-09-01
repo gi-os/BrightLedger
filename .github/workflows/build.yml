@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - '**.md'
+      - 'README.md'
       - '.github/workflows/check.yml'
       - 'signing-fingerprint.txt'
   workflow_dispatch:
@@ -99,6 +99,10 @@ jobs:
           tag_name: v${{ steps.ver.outputs.version }}
           name: BrightLedger v${{ steps.ver.outputs.version }}
           files: out/BrightLedger-v${{ steps.ver.outputs.version }}.apk
+          # Hand-written notes, plus GitHub's commit list appended under them. The
+          # index reads the release body, so a release with only auto-generated notes
+          # reaches BrightMarket as a version number and nothing else.
+          body_path: .github/release-notes.md
           generate_release_notes: true
           make_latest: true
 
