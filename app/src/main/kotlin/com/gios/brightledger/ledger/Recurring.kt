@@ -95,28 +95,32 @@ object Recurring {
      * `POS DEBIT` stays, becoming part of the merchant name for every card transaction in
      * the account and collapsing all of them into one enormous fictional merchant.
      *
-     * Then every non-letter becomes a space: store numbers, terminal ids, order references,
-     * the asterisk in `SQ *COFFEE`, the dot in `AMAZON.COM`.
+     * Then the string is cut into tokens on every non-alphanumeric character, which is what
+     * separates `AMAZON.COM` into two words and pulls the asterisk out of `SQ *COFFEE`.
      *
-     * Only then are the noise *words* dropped, because that pass is word-based and until
-     * the punctuation is gone `AMAZON.COM` is one word rather than two — which is exactly
-     * how an earlier version left `NETFLIX COM` and `NETFLIX` as different merchants.
+     * Then any token *containing* a digit is dropped whole. Dropping only the digits would
+     * leave the letters behind, and an order reference like `2J40K1PL3` would contribute a
+     * stray `PL` that changes with every charge — which is the same failure as not
+     * stripping it at all. The cost is that a merchant whose name is partly numeric loses
+     * that part: `7-ELEVEN` normalizes to `ELEVEN`. That is fine, because this key is only
+     * ever compared against other descriptors from the same bank, which will lose it too.
      */
     fun normalize(description: String): String {
         var text = description.uppercase().trim()
 
         for (prefix in NOISE_PREFIXES) {
-            if (text.startsWith(prefix)) text = text.removePrefix(prefix).trim()
-        }
-
-        text = buildString(text.length) {
-            for (character in text) {
-                append(if (character.isLetter()) character else ' ')
+            if (text.startsWith(prefix)) {
+                text = text.removePrefix(prefix).trim()
+                break
             }
         }
 
-        val words = text.split(' ')
-            .filter { it.length > 1 && it !in NOISE_WORDS }
+        val words = text.split(*SEPARATORS)
+            .filter { token ->
+                token.length > 1 &&
+                    token.none(Char::isDigit) &&
+                    token !in NOISE_WORDS
+            }
 
         // Two words is plenty to identify a merchant and is short enough that a trailing
         // city name does not split one merchant into several.
@@ -206,11 +210,10 @@ object Recurring {
             }
         }
 
-        val words = raw.split(' ', '*', '\t')
-            .map { it.trim() }
+        val words = raw.split(*SEPARATORS)
             .filter { word ->
                 word.length > 1 &&
-                    word.none { it.isDigit() } &&
+                    word.none(Char::isDigit) &&
                     word.uppercase() !in NOISE_WORDS
             }
         if (words.isEmpty()) return "Unknown"
@@ -234,6 +237,14 @@ object Recurring {
             (sorted[middle - 1] + sorted[middle]) / 2
         }
     }
+
+    /**
+     * Everything a bank uses to glue a descriptor together. Splitting on all of them at
+     * once is what makes `AMAZON.COM*2J40K1PL3` three tokens rather than one.
+     */
+    private val SEPARATORS = charArrayOf(
+        ' ', '\t', '*', '.', ',', '-', '_', '/', '#', '\'', '"', '(', ')', ':', ';', '&',
+    )
 
     private val NOISE_PREFIXES = listOf(
         "POS DEBIT", "POS PURCHASE", "DEBIT CARD PURCHASE", "CARD PURCHASE",
