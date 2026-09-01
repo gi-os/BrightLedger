@@ -90,6 +90,18 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     fun lastErrorFor(connectionId: String): String? =
         SyncState.lastError(getApplication(), connectionId)
 
+    /**
+     * Re-reads the connection list, then syncs.
+     *
+     * Called when the vault opens. The list is built at construction, which for a PIN-locked
+     * install is before any credential is readable, so without this the app would still
+     * believe it had none.
+     */
+    fun onVaultOpened() {
+        refreshConnections()
+        refresh()
+    }
+
     fun dismissMessage() {
         _message.value = null
     }

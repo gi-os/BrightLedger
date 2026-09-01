@@ -53,7 +53,21 @@ object Connections {
         }
     }
 
-    fun isConnected(context: Context): Boolean = ids(context).isNotEmpty()
+    /**
+     * Whether this phone has a credential at all, answerable while the vault is shut.
+     *
+     * The legacy key counts. It has to: this is what the start destination is chosen from,
+     * and a v1.0 install that answers "no" here opens on the first-run setup screen, which
+     * never triggers a sync, which is the only thing that used to run the migration. The
+     * credential was never gone in that state, only unreachable — but from the outside it
+     * looks exactly like the app forgot the bank, which is a bad thing for a finance app to
+     * appear to do.
+     */
+    fun isConnected(context: Context): Boolean =
+        ids(context).isNotEmpty() || prefs(context).contains(LEGACY_SEALED)
+
+    /** True while a v1.0 credential is still waiting to be re-filed. */
+    fun hasLegacy(context: Context): Boolean = prefs(context).contains(LEGACY_SEALED)
 
     /**
      * Adds a claimed server. Returns its new id, or null when the vault is shut.
@@ -112,10 +126,15 @@ object Connections {
      * Moves a v1.0 install onto the list, in place, without asking for a new token.
      *
      * The old blob was sealed with the same vault key, so it is re-filed rather than
-     * re-claimed. It has to run while the vault is open, which is why it is called from the
-     * repository on first sync rather than from `Application.onCreate` — at process start a
-     * PIN-locked install has no key and the migration would silently do nothing and then
-     * mark itself done.
+     * re-claimed.
+     *
+     * It needs the vault open, and it is therefore called from two places rather than one:
+     * at startup once the vault is known to be unlocked, and again at the top of every sync.
+     * Neither alone is enough. Startup misses the PIN-locked case, where there is no key yet.
+     * Sync alone was the v1.1.0 bug: nothing syncs until the home screen composes, the home
+     * screen is only the start destination when the app already believes it is connected, and
+     * that belief came from a list the migration had not yet written to. Calling it twice is
+     * free — it returns false immediately once the legacy key is gone.
      */
     fun migrateLegacy(context: Context): Boolean {
         val prefs = prefs(context)

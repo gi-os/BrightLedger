@@ -17,6 +17,7 @@ import androidx.navigation.navArgument
 import com.gios.brightledger.hw.LightKey
 import com.gios.brightledger.hw.LightKeys
 import com.gios.brightledger.hw.LocalWheelBus
+import com.gios.brightledger.data.Connections
 import com.gios.brightledger.hw.WheelBus
 import com.gios.brightledger.ui.ConnectionsScreen
 import com.gios.brightledger.ui.HomeScreen
@@ -63,6 +64,12 @@ class MainActivity : ComponentActivity() {
         // ledger or on the keypad.
         Vault.init(this)
 
+        // And before the navigation graph picks a start destination, because that choice is
+        // made from the connection list and a v1.0 credential is not in it yet. With no PIN
+        // set the vault is already open here and this is where the upgrade completes; with a
+        // PIN it does nothing and the copy inside sync() finishes the job after unlock.
+        if (Vault.key() != null) Connections.migrateLegacy(this)
+
         // Balances and merchant names are exactly the sort of thing that should not end up
         // in the recents thumbnail or a screenshot taken by something else.
         window.setFlags(
@@ -84,7 +91,15 @@ class MainActivity : ComponentActivity() {
                         // credential.
                         // The PIN itself is not wanted here — the vault has already used it
                         // to unwrap the key by the time this fires.
-                        LockScreen(onUnlocked = { _ -> vm.refresh() })
+                        LockScreen(
+                            onUnlocked = { _ ->
+                                // The vault key exists now, so a v1.0 credential can finally
+                                // be re-filed — and it has to happen before the graph below
+                                // composes and picks a start destination from the list.
+                                Connections.migrateLegacy(this@MainActivity)
+                                vm.onVaultOpened()
+                            },
+                        )
                     } else {
                         NavHost(
                             nav,
