@@ -18,6 +18,7 @@ import com.gios.brightledger.hw.LightKey
 import com.gios.brightledger.hw.LightKeys
 import com.gios.brightledger.hw.LocalWheelBus
 import com.gios.brightledger.hw.WheelBus
+import com.gios.brightledger.ui.ConnectionsScreen
 import com.gios.brightledger.ui.HomeScreen
 import com.gios.brightledger.ui.LedgerViewModel
 import com.gios.brightledger.ui.LockScreen
@@ -100,6 +101,28 @@ class MainActivity : ComponentActivity() {
                                     },
                                 )
                             }
+                            composable("add-server") {
+                                SetupScreen(
+                                    vm = vm,
+                                    onScan = { nav.navigate("scan-add") },
+                                    // Back to the connections list, not to home: the user
+                                    // came here to manage servers and has just added one.
+                                    onConnected = { nav.popBackStack() },
+                                    onBack = { nav.popBackStack() },
+                                )
+                            }
+                            composable("connections") {
+                                ConnectionsScreen(
+                                    vm = vm,
+                                    onBack = { nav.popBackStack() },
+                                    onAdd = { nav.navigate("add-server") },
+                                )
+                            }
+                            // Two scan destinations for one screen, because where a scan
+                            // returns to is not the same in both cases: the first one has to
+                            // replace the setup screen with the ledger, and a later one has
+                            // to land back on the connections list without touching the
+                            // stack underneath it.
                             composable("scan") {
                                 ScanScreen(
                                     onBack = { nav.popBackStack() },
@@ -114,6 +137,17 @@ class MainActivity : ComponentActivity() {
                                                     popUpTo("setup") { inclusive = true }
                                                 }
                                             }
+                                        }
+                                    },
+                                )
+                            }
+                            composable("scan-add") {
+                                ScanScreen(
+                                    onBack = { nav.popBackStack() },
+                                    onScanned = { raw ->
+                                        nav.popBackStack()
+                                        vm.connect(raw) { ok ->
+                                            if (ok) nav.popBackStack()
                                         }
                                     },
                                 )
@@ -150,7 +184,7 @@ class MainActivity : ComponentActivity() {
                                     onBack = { nav.popBackStack() },
                                     onSetPin = { nav.navigate("pin/new") },
                                     onChangePin = { nav.navigate("pin/change") },
-                                    onReconnect = { nav.navigate("setup") },
+                                    onOpenConnections = { nav.navigate("connections") },
                                     onDisconnected = {
                                         nav.navigate("setup") {
                                             popUpTo("home") { inclusive = true }

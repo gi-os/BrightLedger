@@ -1,5 +1,6 @@
 package com.gios.brightledger.data
 
+import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Insert
@@ -7,7 +8,6 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import android.content.Context
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -22,8 +22,11 @@ interface LedgerDao {
     @Query("SELECT * FROM accounts ORDER BY balanceCents DESC")
     fun accounts(): Flow<List<AccountEntity>>
 
-    @Query("SELECT * FROM accounts")
-    suspend fun accountsNow(): List<AccountEntity>
+    @Query("SELECT * FROM accounts WHERE connectionId = :connectionId")
+    suspend fun accountsFor(connectionId: String): List<AccountEntity>
+
+    @Query("SELECT COUNT(*) FROM accounts WHERE connectionId = :connectionId")
+    fun accountCount(connectionId: String): Flow<Int>
 
     @Query(
         """
@@ -48,8 +51,8 @@ interface LedgerDao {
     )
     fun transaction(accountId: String, txnId: String): Flow<TransactionWithAccount?>
 
-    @Query("SELECT * FROM transactions ORDER BY at DESC LIMIT :limit")
-    suspend fun allTransactions(limit: Int = 4000): List<TransactionEntity>
+    @Query("SELECT * FROM transactions WHERE accountId = :accountId AND pending = 1 AND at >= :windowStart")
+    suspend fun pendingIn(accountId: String, windowStart: Long): List<TransactionEntity>
 
     /**
      * Drops pending rows in the window that the server no longer reports.
@@ -62,19 +65,23 @@ interface LedgerDao {
      * Scoped to the window that was actually fetched, so an incremental sync cannot delete
      * pending rows older than the range it asked about and knows nothing on.
      */
-    @Query(
-        """
-        DELETE FROM transactions
-        WHERE pending = 1
-          AND accountId = :accountId
-          AND at >= :windowStart
-          AND txnId NOT IN (:seen)
-        """,
-    )
-    suspend fun sweepPending(accountId: String, windowStart: Long, seen: List<String>)
+    @Query("DELETE FROM transactions WHERE accountId = :accountId AND txnId IN (:txnIds)")
+    suspend fun deleteTransactions(accountId: String, txnIds: List<String>)
 
     @Query("DELETE FROM transactions WHERE pending = 1 AND accountId = :accountId AND at >= :windowStart")
     suspend fun sweepAllPending(accountId: String, windowStart: Long)
+
+    /** Everything belonging to one server, for a disconnect that leaves the others alone. */
+    @Query(
+        """
+        DELETE FROM transactions
+        WHERE accountId IN (SELECT id FROM accounts WHERE connectionId = :connectionId)
+        """,
+    )
+    suspend fun deleteTransactionsFor(connectionId: String)
+
+    @Query("DELETE FROM accounts WHERE connectionId = :connectionId")
+    suspend fun deleteAccountsFor(connectionId: String)
 
     @Query("DELETE FROM transactions")
     suspend fun clearTransactions()
@@ -85,7 +92,7 @@ interface LedgerDao {
 
 @Database(
     entities = [AccountEntity::class, TransactionEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class LedgerDatabase : RoomDatabase() {
@@ -101,9 +108,12 @@ abstract class LedgerDatabase : RoomDatabase() {
                 LedgerDatabase::class.java,
                 "brightledger.db",
             )
-                // The database is a cache of a server that still has everything. If a future
-                // schema change makes migration awkward, throwing the cache away and
-                // re-syncing is both correct and cheap — there is no local-only data here.
+                // Version 2 added the connection columns and re-keyed accounts. No migration
+                // is written because there is nothing here worth migrating: the database is a
+                // cache of a server that still has everything, and the next sync re-reads a
+                // year. Writing a migration would mean inventing a connection id for rows that
+                // predate the concept, and getting that wrong strands them as orphans no sync
+                // ever touches.
                 .fallbackToDestructiveMigration()
                 .build().also { instance = it }
         }

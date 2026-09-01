@@ -7,7 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * One sync, start to finish.
+ * One sync across every connected server.
  *
  * Offline-first in the strict sense: the screens read Room and only Room, and a sync is a
  * background write into it. A failed refresh therefore changes nothing on screen except the
@@ -21,62 +21,104 @@ class LedgerRepository private constructor(
 
     val dao: LedgerDao = LedgerDatabase.get(context).dao()
 
-    sealed interface SyncResult {
+    /** What happened to one connection. */
+    sealed interface Outcome {
         data class Ok(val accounts: Int, val transactions: Int, val warnings: List<String>) :
-            SyncResult
+            Outcome
 
-        /** No credential available: either nothing is connected, or the vault is locked. */
-        data object NotConnected : SyncResult
+        /** The server revoked us. The user has to reconnect; the cache stays put. */
+        data object NeedsReconnect : Outcome
 
-        /** The Bridge revoked us. The user has to reconnect; the cache stays put. */
-        data object NeedsReconnect : SyncResult
+        data object PaymentRequired : Outcome
 
-        data object PaymentRequired : SyncResult
-
-        data class Failed(val message: String) : SyncResult
+        data class Failed(val message: String) : Outcome
     }
 
-    suspend fun sync(full: Boolean = false): SyncResult = withContext(Dispatchers.IO) {
-        val access = AccessUrlStore.load(context) ?: return@withContext SyncResult.NotConnected
-
-        val windowStart = if (full) {
-            SyncState.initialWindowStart()
-        } else {
-            SyncState.incrementalWindowStart(context)
-        }
-
-        when (val result = client.fetchAccounts(access, startDate = windowStart)) {
-            is SimpleFinClient.FetchResult.Forbidden -> {
-                SyncState.recordError(context, "Access was revoked.")
-                SyncResult.NeedsReconnect
-            }
-
-            is SimpleFinClient.FetchResult.PaymentRequired -> {
-                SyncState.recordError(context, "The SimpleFIN Bridge needs payment.")
-                SyncResult.PaymentRequired
-            }
-
-            is SimpleFinClient.FetchResult.Failed -> {
-                SyncState.recordError(context, result.message)
-                SyncResult.Failed(result.message)
-            }
-
-            is SimpleFinClient.FetchResult.Success -> {
-                val counts = store(result.data, windowStart)
-                SyncState.recordSuccess(context)
-                SyncResult.Ok(
-                    accounts = counts.first,
-                    transactions = counts.second,
-                    // Displayed verbatim but never trusted: these strings come from the
-                    // server, so they are shown as plain text in a Text composable and never
-                    // parsed, formatted, or turned into a link.
-                    warnings = result.data.errors.map { it.msg },
-                )
-            }
-        }
+    data class SyncReport(
+        val results: Map<String, Outcome>,
+        /** True when nothing is connected at all, or the vault is shut. */
+        val notConnected: Boolean = false,
+    ) {
+        val anySucceeded: Boolean get() = results.values.any { it is Outcome.Ok }
+        val warnings: List<String> get() = results.values
+            .filterIsInstance<Outcome.Ok>()
+            .flatMap { it.warnings }
+        fun firstProblem(): Outcome? = results.values.firstOrNull { it !is Outcome.Ok }
     }
 
-    private suspend fun store(data: SfAccountSet, windowStart: Long): Pair<Int, Int> {
+    /**
+     * Syncs every connection in turn.
+     *
+     * Sequentially rather than in parallel, deliberately. Two or three servers is the whole
+     * range here, the phone is often on cellular, and one connection at a time keeps a
+     * failure attributable — a `Failed` result names the server it came from, which a
+     * gathered exception from a parallel job would not.
+     *
+     * A connection that fails does not stop the others. That is the entire point of the
+     * report: a dead Revolut broker on the home server must not stop the Bridge accounts from
+     * refreshing.
+     */
+    suspend fun sync(full: Boolean = false): SyncReport = withContext(Dispatchers.IO) {
+        Connections.migrateLegacy(context)
+
+        val connections = Connections.all(context)
+        if (connections.isEmpty()) return@withContext SyncReport(emptyMap(), notConnected = true)
+
+        val results = LinkedHashMap<String, Outcome>()
+        for (connection in connections) {
+            results[connection.id] = syncOne(connection.id, full)
+        }
+        SyncReport(results)
+    }
+
+    /** One server. Public so the connections screen can retry a single sick one. */
+    suspend fun syncOne(connectionId: String, full: Boolean = false): Outcome =
+        withContext(Dispatchers.IO) {
+            val access = Connections.load(context, connectionId)
+                ?: return@withContext Outcome.Failed("Locked.")
+
+            val windowStart = if (full) {
+                SyncState.initialWindowStart()
+            } else {
+                SyncState.incrementalWindowStart(context, connectionId)
+            }
+
+            when (val result = client.fetchAccounts(access, startDate = windowStart)) {
+                is SimpleFinClient.FetchResult.Forbidden -> {
+                    SyncState.recordError(context, connectionId, "Access was revoked.")
+                    Outcome.NeedsReconnect
+                }
+
+                is SimpleFinClient.FetchResult.PaymentRequired -> {
+                    SyncState.recordError(context, connectionId, "The server needs payment.")
+                    Outcome.PaymentRequired
+                }
+
+                is SimpleFinClient.FetchResult.Failed -> {
+                    SyncState.recordError(context, connectionId, result.message)
+                    Outcome.Failed(result.message)
+                }
+
+                is SimpleFinClient.FetchResult.Success -> {
+                    val counts = store(connectionId, result.data, windowStart)
+                    SyncState.recordSuccess(context, connectionId)
+                    Outcome.Ok(
+                        accounts = counts.first,
+                        transactions = counts.second,
+                        // Displayed verbatim but never trusted: these strings come from the
+                        // server, so they are shown as plain text in a Text composable and
+                        // never parsed, formatted, or turned into a link.
+                        warnings = result.data.errors.map { it.msg },
+                    )
+                }
+            }
+        }
+
+    private suspend fun store(
+        connectionId: String,
+        data: SfAccountSet,
+        windowStart: Long,
+    ): Pair<Int, Int> {
         val connectionNames = data.connections.associate { it.connId to it.name }
 
         // Errors are attached to the account they name, or to every account on the
@@ -94,7 +136,9 @@ class LedgerRepository private constructor(
 
         val accounts = data.accounts.map { account ->
             AccountEntity(
-                id = account.id,
+                id = AccountEntity.key(connectionId, account.id),
+                connectionId = connectionId,
+                remoteId = account.id,
                 name = account.name,
                 connId = account.connId,
                 connName = account.connId?.let(connectionNames::get),
@@ -107,9 +151,10 @@ class LedgerRepository private constructor(
         }
 
         val transactions = data.accounts.flatMap { account ->
+            val key = AccountEntity.key(connectionId, account.id)
             account.transactions.map { txn ->
                 TransactionEntity(
-                    accountId = account.id,
+                    accountId = key,
                     txnId = txn.id,
                     at = txn.effectiveAt,
                     posted = txn.posted,
@@ -124,14 +169,12 @@ class LedgerRepository private constructor(
         if (transactions.isNotEmpty()) dao.upsertTransactions(transactions)
 
         for (account in data.accounts) {
-            val seen = account.transactions.map { it.id }
+            val key = AccountEntity.key(connectionId, account.id)
+            val seen = account.transactions.mapTo(HashSet()) { it.id }
             if (seen.isEmpty()) {
-                dao.sweepAllPending(account.id, windowStart)
+                dao.sweepAllPending(key, windowStart)
             } else {
-                // Chunked because SQLite caps the number of bound parameters in one
-                // statement, and a busy month on a card can pass a thousand ids.
-                val kept = HashSet(seen)
-                dao.sweepAllPendingExcept(account.id, windowStart, kept)
+                sweepVanishedPending(key, windowStart, seen)
             }
         }
 
@@ -139,27 +182,34 @@ class LedgerRepository private constructor(
     }
 
     /**
-     * The sweep, done as a read-then-delete rather than a `NOT IN` with a thousand binds.
+     * The pending sweep, as a read-then-delete rather than one `NOT IN (...)`.
      *
-     * Room would happily generate the statement; SQLite would then refuse it at runtime once
+     * Room would happily generate that statement; SQLite would then refuse it at runtime once
      * the id list crossed its bound-parameter limit, and only on the accounts busy enough to
-     * matter. Reading the pending ids back and deleting the difference has no such ceiling.
+     * matter. Reading the window's pending ids back and deleting the difference has no such
+     * ceiling, and the delete is chunked for the same reason.
      */
-    private suspend fun LedgerDao.sweepAllPendingExcept(
-        accountId: String,
+    private suspend fun sweepVanishedPending(
+        accountKey: String,
         windowStart: Long,
-        keep: Set<String>,
+        seen: Set<String>,
     ) {
-        val stale = allTransactions()
-            .filter { it.pending && it.accountId == accountId && it.at >= windowStart }
+        val stale = dao.pendingIn(accountKey, windowStart)
             .map { it.txnId }
-            .filterNot(keep::contains)
-        stale.chunked(400).forEach { chunk -> sweepPending(accountId, windowStart, chunk.toList()) }
+            .filterNot(seen::contains)
+        stale.chunked(400).forEach { chunk -> dao.deleteTransactions(accountKey, chunk) }
     }
 
-    suspend fun disconnect() = withContext(Dispatchers.IO) {
-        AccessUrlStore.clear(context)
-        SyncState.clear(context)
+    /** Forgets one server and everything it cached. The others are untouched. */
+    suspend fun disconnect(connectionId: String) = withContext(Dispatchers.IO) {
+        dao.deleteTransactionsFor(connectionId)
+        dao.deleteAccountsFor(connectionId)
+        Connections.remove(context, connectionId)
+    }
+
+    suspend fun disconnectAll() = withContext(Dispatchers.IO) {
+        Connections.clear(context)
+        SyncState.clearAll(context)
         dao.clearTransactions()
         dao.clearAccounts()
     }

@@ -3,14 +3,13 @@ package com.gios.brightledger.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.gios.brightledger.data.AccessUrlStore
 import com.gios.brightledger.data.AccountEntity
+import com.gios.brightledger.data.Connections
 import com.gios.brightledger.data.LedgerRepository
 import com.gios.brightledger.data.SyncState
 import com.gios.brightledger.data.TransactionWithAccount
 import com.gios.brightledger.ledger.Recurring
 import com.gios.brightledger.ledger.Summary
-import com.gios.brightledger.simplefin.AccessUrl
 import com.gios.brightledger.simplefin.SimpleFinClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,47 +73,80 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    private val _needsReconnect = MutableStateFlow(false)
-    val needsReconnect: StateFlow<Boolean> = _needsReconnect.asStateFlow()
+    private val _connections = MutableStateFlow(Connections.all(app))
+    val connections: StateFlow<List<Connections.Connection>> = _connections.asStateFlow()
 
-    private val _connected = MutableStateFlow(AccessUrlStore.isConnected(app))
+    private val _connected = MutableStateFlow(Connections.isConnected(app))
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
-    fun lastSyncSeconds(): Long = SyncState.lastSuccess(getApplication())
+    private val _needsReconnect = MutableStateFlow<Set<String>>(emptySet())
+    val needsReconnect: StateFlow<Set<String>> = _needsReconnect.asStateFlow()
 
-    fun serverHost(): String? = AccessUrlStore.hostHint(getApplication())
+    fun lastSyncSeconds(): Long = SyncState.lastSuccessAny(getApplication())
+
+    fun lastSyncFor(connectionId: String): Long =
+        SyncState.lastSuccess(getApplication(), connectionId)
+
+    fun lastErrorFor(connectionId: String): String? =
+        SyncState.lastError(getApplication(), connectionId)
 
     fun dismissMessage() {
         _message.value = null
+    }
+
+    private fun refreshConnections() {
+        _connections.value = Connections.all(getApplication())
+        _connected.value = Connections.isConnected(getApplication())
     }
 
     fun refresh(full: Boolean = false) {
         if (_syncing.value) return
         _syncing.value = true
         viewModelScope.launch {
-            when (val result = repo.sync(full = full)) {
-                is LedgerRepository.SyncResult.Ok -> {
-                    _needsReconnect.value = false
-                    // Server-side warnings are surfaced once, not stored. A degraded
-                    // connection reports the same string on every sync, and a dialog that
-                    // reappears on every pull is one the user learns to dismiss unread.
-                    result.warnings.firstOrNull()?.let { _message.value = it }
-                }
+            val report = repo.sync(full = full)
+            refreshConnections()
 
-                is LedgerRepository.SyncResult.NeedsReconnect -> {
-                    _needsReconnect.value = true
-                    _message.value = "This connection was revoked. Reconnect from Settings."
-                }
-
-                is LedgerRepository.SyncResult.PaymentRequired ->
-                    _message.value = "The SimpleFIN Bridge is refusing requests until its " +
-                        "subscription is renewed. That is between you and the Bridge — " +
-                        "BrightLedger has no billing."
-
-                is LedgerRepository.SyncResult.NotConnected -> _connected.value = false
-
-                is LedgerRepository.SyncResult.Failed -> _message.value = result.message
+            if (report.notConnected) {
+                _syncing.value = false
+                return@launch
             }
+
+            _needsReconnect.value = report.results
+                .filterValues { it is LedgerRepository.Outcome.NeedsReconnect }
+                .keys
+
+            // One message, not one per connection. Three servers having the same network
+            // problem is one fact, and a dialog per server is a dialog the user dismisses
+            // unread. Server-side warnings come first because they say something specific.
+            val warning = report.warnings.firstOrNull()
+            val problem = report.firstProblem()
+            _message.value = when {
+                warning != null -> warning
+                problem is LedgerRepository.Outcome.NeedsReconnect ->
+                    "A connection was revoked. Reconnect it from Settings."
+                problem is LedgerRepository.Outcome.PaymentRequired ->
+                    "A SimpleFIN server is refusing requests until its subscription is " +
+                        "renewed. That is between you and that server."
+                // Only worth a dialog when nothing at all got through. One sick connection
+                // out of three is a line on the connections screen, not an interruption.
+                problem is LedgerRepository.Outcome.Failed && !report.anySucceeded ->
+                    problem.message
+                else -> null
+            }
+            _syncing.value = false
+        }
+    }
+
+    fun retry(connectionId: String) {
+        if (_syncing.value) return
+        _syncing.value = true
+        viewModelScope.launch {
+            val outcome = repo.syncOne(connectionId)
+            if (outcome is LedgerRepository.Outcome.Failed) _message.value = outcome.message
+            if (outcome !is LedgerRepository.Outcome.NeedsReconnect) {
+                _needsReconnect.value = _needsReconnect.value - connectionId
+            }
+            refreshConnections()
             _syncing.value = false
         }
     }
@@ -126,46 +158,63 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
      * locked, say — the token is spent and the Access URL is gone, so the save is checked and
      * a failure is reported as the serious thing it is rather than as a retryable error.
      */
-    fun connect(token: String, onDone: (Boolean) -> Unit) {
+    fun connect(token: String, label: String? = null, onDone: (Boolean) -> Unit) {
         if (_syncing.value) return
         _syncing.value = true
         viewModelScope.launch {
             val outcome = withContext(Dispatchers.IO) { client.claim(token.trim()) }
-            var ok = false
+            var newId: String? = null
             when (outcome) {
-                is SimpleFinClient.ClaimResult.Success ->
-                    ok = saveClaim(outcome, outcome.accessUrl.rawForStorage())
+                is SimpleFinClient.ClaimResult.Success -> {
+                    newId = Connections.add(
+                        getApplication(),
+                        outcome.accessUrl,
+                        outcome.accessUrl.rawForStorage(),
+                        label,
+                    )
+                    if (newId == null) {
+                        _message.value = "Connected, but the credential could not be saved " +
+                            "because the app is locked. Unlock and connect again with a new " +
+                            "token."
+                    }
+                }
 
                 is SimpleFinClient.ClaimResult.AlreadyClaimed -> _message.value =
                     "That token was already used. If you did not use it, treat it as " +
-                        "compromised: delete it on the Bridge and make a new one."
+                        "compromised: delete it on the server that issued it and make a new one."
 
                 is SimpleFinClient.ClaimResult.Failed -> _message.value = outcome.message
             }
             _syncing.value = false
-            if (ok) {
-                _connected.value = true
-                _needsReconnect.value = false
-                refresh(full = true)
+            refreshConnections()
+
+            val id = newId
+            if (id != null) {
+                // Only the new server, and only its full history. Re-reading a year from
+                // every server because one was added would turn adding a second bank into a
+                // minutes-long stall on cellular.
+                _syncing.value = true
+                repo.syncOne(id, full = true)
+                _syncing.value = false
             }
-            onDone(ok)
+            onDone(id != null)
         }
     }
 
-    private fun saveClaim(result: SimpleFinClient.ClaimResult.Success, raw: String): Boolean {
-        val saved = AccessUrlStore.save(getApplication(), result.accessUrl, raw)
-        if (!saved) {
-            _message.value = "Connected, but the credential could not be saved because the " +
-                "app is locked. Unlock and connect again with a new token."
-        }
-        return saved
-    }
-
-    fun disconnect(onDone: () -> Unit) {
+    fun disconnect(connectionId: String, onDone: () -> Unit = {}) {
         viewModelScope.launch {
-            repo.disconnect()
-            _connected.value = false
-            _needsReconnect.value = false
+            repo.disconnect(connectionId)
+            _needsReconnect.value = _needsReconnect.value - connectionId
+            refreshConnections()
+            onDone()
+        }
+    }
+
+    fun disconnectAll(onDone: () -> Unit) {
+        viewModelScope.launch {
+            repo.disconnectAll()
+            _needsReconnect.value = emptySet()
+            refreshConnections()
             onDone()
         }
     }

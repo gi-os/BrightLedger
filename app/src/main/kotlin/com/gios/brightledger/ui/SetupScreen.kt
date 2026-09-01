@@ -49,8 +49,11 @@ fun SetupScreen(
     vm: LedgerViewModel,
     onScan: () -> Unit,
     onConnected: () -> Unit,
+    /** Null on first run, where there is nothing behind this screen to go back to. */
+    onBack: (() -> Unit)? = null,
 ) {
     var token by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf("") }
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val scroll = rememberScrollState()
@@ -61,11 +64,14 @@ fun SetupScreen(
         bottomBar = {
             ActionBar(
                 buildList {
+                    if (onBack != null) add(BarAction("BACK", onBack))
                     add(BarAction("SCAN", onScan))
                     add(
                         BarAction(if (syncing) "…" else "CONNECT") {
                             if (token.isNotBlank()) {
-                                vm.connect(token) { ok -> if (ok) onConnected() }
+                                vm.connect(token, name.takeIf { it.isNotBlank() }) { ok ->
+                                    if (ok) onConnected()
+                                }
                             }
                         },
                     )
@@ -82,7 +88,7 @@ fun SetupScreen(
         ) {
             Spacer(Modifier.height(28.dp))
             Text(
-                "Connect a bank",
+                if (onBack == null) "Connect a bank" else "Add a server",
                 style = MaterialTheme.typography.titleLarge,
                 color = Color.White,
             )
@@ -109,6 +115,24 @@ fun SetupScreen(
                     autoCorrectEnabled = false,
                     imeAction = ImeAction.Done,
                 ),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color.White,
+                    unfocusedBorderColor = RuleGrey,
+                    cursorColor = Color.White,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(Modifier.height(14.dp))
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Name (optional)", color = Dim) },
+                placeholder = { Text("Revolut, via BasilNet", color = Faint) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,

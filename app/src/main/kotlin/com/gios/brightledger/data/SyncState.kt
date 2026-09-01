@@ -3,16 +3,21 @@ package com.gios.brightledger.data
 import android.content.Context
 
 /**
- * When the last sync happened, and how far back the next one should ask.
+ * When each connection last synced, and how far back its next sync should ask.
  *
- * Kept in preferences rather than Room because it survives the cache being thrown away, and
- * because the sync needs it before it can safely open the database.
+ * Per connection, not global. Two servers refresh on their own schedules and one of them
+ * being unreachable for a week must not widen the other's window — nor narrow it, which is
+ * the more dangerous direction: a shared "last success" advanced by the healthy server would
+ * make the sick one skip everything that happened while it was down.
  */
 object SyncState {
 
     private const val PREFS_NAME = "brightledger_sync"
-    private const val KEY_LAST_OK = "last_success"
-    private const val KEY_LAST_ERROR = "last_error"
+    private const val LAST_OK = "last_success_"
+    private const val LAST_ERROR = "last_error_"
+
+    /** The v1.0 global keys, adopted by the first connection on upgrade. */
+    private const val LEGACY_LAST_OK = "last_success"
 
     private const val DAY = 86_400L
 
@@ -32,31 +37,57 @@ object SyncState {
 
     fun initialWindowStart(): Long = nowSeconds() - INITIAL_DAYS * DAY
 
-    fun incrementalWindowStart(context: Context): Long {
-        val last = lastSuccess(context)
+    fun incrementalWindowStart(context: Context, connectionId: String): Long {
+        val last = lastSuccess(context, connectionId)
         if (last <= 0L) return initialWindowStart()
-        return minOf(last - OVERLAP_DAYS * DAY, nowSeconds()).coerceAtLeast(
-            nowSeconds() - INITIAL_DAYS * DAY,
-        )
+        return minOf(last - OVERLAP_DAYS * DAY, nowSeconds())
+            .coerceAtLeast(nowSeconds() - INITIAL_DAYS * DAY)
     }
 
-    fun lastSuccess(context: Context): Long = prefs(context).getLong(KEY_LAST_OK, 0L)
+    fun lastSuccess(context: Context, connectionId: String): Long =
+        prefs(context).getLong(LAST_OK + connectionId, 0L)
 
-    fun lastError(context: Context): String? = prefs(context).getString(KEY_LAST_ERROR, null)
+    /** The freshest of any connection, for the one staleness line on the home screen. */
+    fun lastSuccessAny(context: Context): Long =
+        Connections.all(context).maxOfOrNull { lastSuccess(context, it.id) } ?: 0L
 
-    fun recordSuccess(context: Context) {
+    fun lastError(context: Context, connectionId: String): String? =
+        prefs(context).getString(LAST_ERROR + connectionId, null)
+
+    fun recordSuccess(context: Context, connectionId: String) {
         prefs(context).edit()
-            .putLong(KEY_LAST_OK, nowSeconds())
-            .remove(KEY_LAST_ERROR)
+            .putLong(LAST_OK + connectionId, nowSeconds())
+            .remove(LAST_ERROR + connectionId)
             .apply()
     }
 
-    fun recordError(context: Context, message: String) {
-        prefs(context).edit().putString(KEY_LAST_ERROR, message).apply()
+    fun recordError(context: Context, connectionId: String, message: String) {
+        prefs(context).edit().putString(LAST_ERROR + connectionId, message).apply()
     }
 
-    fun clear(context: Context) {
+    fun clear(context: Context, connectionId: String) {
+        prefs(context).edit()
+            .remove(LAST_OK + connectionId)
+            .remove(LAST_ERROR + connectionId)
+            .apply()
+    }
+
+    fun clearAll(context: Context) {
         prefs(context).edit().clear().apply()
+    }
+
+    /**
+     * Hands the v1.0 global last-sync to the connection that inherited its credential, so an
+     * upgrade does not re-download a year on first launch.
+     */
+    fun adoptLegacy(context: Context, connectionId: String) {
+        val prefs = prefs(context)
+        val legacy = prefs.getLong(LEGACY_LAST_OK, 0L)
+        if (legacy <= 0L) return
+        prefs.edit()
+            .putLong(LAST_OK + connectionId, legacy)
+            .remove(LEGACY_LAST_OK)
+            .apply()
     }
 
     private fun nowSeconds(): Long = System.currentTimeMillis() / 1000

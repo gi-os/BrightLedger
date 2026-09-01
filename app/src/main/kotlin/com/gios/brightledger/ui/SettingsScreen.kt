@@ -17,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightledger.BuildConfig
@@ -31,11 +30,11 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onSetPin: () -> Unit,
     onChangePin: () -> Unit,
-    onReconnect: () -> Unit,
+    onOpenConnections: () -> Unit,
     onDisconnected: () -> Unit,
 ) {
-    val context = LocalContext.current
     val syncing by vm.syncing.collectAsStateWithLifecycle()
+    val connections by vm.connections.collectAsStateWithLifecycle()
     var confirmDisconnect by remember { mutableStateOf(false) }
     var pinSet by remember { mutableStateOf(Vault.isPinSet()) }
     val scroll = rememberScrollState()
@@ -47,10 +46,15 @@ fun SettingsScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(scroll)) {
 
-            SectionLabel("Connection")
+            SectionLabel("Data")
             MenuRow(
-                label = "Server",
-                sub = vm.serverHost() ?: "Not connected",
+                label = "Servers",
+                sub = when (connections.size) {
+                    0 -> "None connected"
+                    1 -> connections.first().label
+                    else -> connections.size.toString() + " connected"
+                },
+                onClick = onOpenConnections,
             )
             MenuRow(
                 label = "Last sync",
@@ -58,17 +62,12 @@ fun SettingsScreen(
             )
             MenuRow(
                 label = if (syncing) "Syncing…" else "Sync all history",
-                sub = "Re-reads about a year, rather than the usual two weeks",
+                sub = "Re-reads about a year from every server, rather than the usual two weeks",
                 onClick = { vm.refresh(full = true) },
             )
             MenuRow(
-                label = "Reconnect",
-                sub = "Use a new setup token from the Bridge",
-                onClick = onReconnect,
-            )
-            MenuRow(
-                label = "Disconnect",
-                sub = "Erase the stored credential and all cached data on this phone",
+                label = "Erase everything",
+                sub = "Forget every server and all cached data on this phone",
                 onClick = { confirmDisconnect = true },
             )
 
@@ -78,8 +77,8 @@ fun SettingsScreen(
                 sub = if (pinSet) {
                     "Required each time the app comes to the front"
                 } else {
-                    "The credential is already encrypted to this phone. A PIN also " +
-                        "protects it from someone holding the phone unlocked."
+                    "Credentials are already encrypted to this phone. A PIN also protects " +
+                        "them from someone holding the phone unlocked."
                 },
                 checked = pinSet,
                 onToggle = { wanted ->
@@ -95,7 +94,7 @@ fun SettingsScreen(
                 MenuRow(label = "Change PIN", onClick = onChangePin)
                 ToggleRow(
                     label = "Erase after 10 wrong PINs",
-                    sub = "Destroys the key, which destroys the stored credential",
+                    sub = "Destroys the key, which destroys every stored credential",
                     checked = Vault.isWipeEnabled(),
                     onToggle = { Vault.setWipeEnabled(it) },
                 )
@@ -112,9 +111,9 @@ fun SettingsScreen(
                 Text(
                     "Balances and transactions over the SimpleFIN protocol. There is no " +
                         "BrightLedger server: the phone talks straight to the SimpleFIN " +
-                        "server you connected, using a read-only credential that only " +
-                        "exists on this device. Revoking access is done on the Bridge, " +
-                        "not here.",
+                        "servers you connected, using read-only credentials that only exist " +
+                        "on this device. Revoking access is done wherever each credential " +
+                        "was issued, not here.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Faint,
                 )
@@ -125,16 +124,13 @@ fun SettingsScreen(
 
     if (confirmDisconnect) {
         ConfirmDialog(
-            // Saying what disconnecting does *not* do matters more than what it does. A user
-            // who believes this revoked the grant will leave a live read credential sitting
-            // on the Bridge indefinitely.
-            message = "Erase the stored credential and all cached transactions from this " +
-                "phone?\n\nThis does not revoke access. To do that, delete the app on " +
-                "bridge.simplefin.org.",
+            message = "Forget every server and erase all cached transactions from this " +
+                "phone?\n\nThis does not revoke access. Do that wherever each credential " +
+                "was issued.",
             confirmLabel = "ERASE",
             onConfirm = {
                 confirmDisconnect = false
-                vm.disconnect(onDisconnected)
+                vm.disconnectAll(onDisconnected)
             },
             onDismiss = { confirmDisconnect = false },
         )
