@@ -88,9 +88,19 @@ object Recurring {
     /**
      * Strips a bank descriptor down to the merchant.
      *
-     * The order matters: prefixes go before the digit strip, because "POS DEBIT 0412 NETFLIX"
-     * loses its date to the digit strip and would otherwise keep "POS DEBIT" as part of the
-     * name for every card transaction in the account, collapsing them all into one merchant.
+     * Three passes, and the order of them is the whole function.
+     *
+     * Multi-word prefixes go first, while they are still intact — `POS DEBIT 0412 NETFLIX`
+     * has to lose `POS DEBIT` before anything touches the digits, or the date goes and
+     * `POS DEBIT` stays, becoming part of the merchant name for every card transaction in
+     * the account and collapsing all of them into one enormous fictional merchant.
+     *
+     * Then every non-letter becomes a space: store numbers, terminal ids, order references,
+     * the asterisk in `SQ *COFFEE`, the dot in `AMAZON.COM`.
+     *
+     * Only then are the noise *words* dropped, because that pass is word-based and until
+     * the punctuation is gone `AMAZON.COM` is one word rather than two — which is exactly
+     * how an earlier version left `NETFLIX COM` and `NETFLIX` as different merchants.
      */
     fun normalize(description: String): String {
         var text = description.uppercase().trim()
@@ -98,19 +108,16 @@ object Recurring {
         for (prefix in NOISE_PREFIXES) {
             if (text.startsWith(prefix)) text = text.removePrefix(prefix).trim()
         }
-        for (token in NOISE_TOKENS) {
-            text = text.replace(token, " ")
-        }
 
-        // Everything that is not a letter or a space: store numbers, terminal ids, order
-        // references, the asterisk in "SQ *COFFEE", the dot in "AMAZON.COM".
         text = buildString(text.length) {
             for (character in text) {
                 append(if (character.isLetter()) character else ' ')
             }
         }
 
-        val words = text.split(' ').filter { it.isNotBlank() && it.length > 1 }
+        val words = text.split(' ')
+            .filter { it.length > 1 && it !in NOISE_WORDS }
+
         // Two words is plenty to identify a merchant and is short enough that a trailing
         // city name does not split one merchant into several.
         return words.take(2).joinToString(" ")
@@ -179,23 +186,42 @@ object Recurring {
     }
 
     /**
-     * The shortest descriptor in the group, cleaned up.
+     * A label a person would recognise, built from the real descriptors.
      *
-     * Shortest, because the decoration banks add is almost always a suffix — the plainest
-     * string in the set is the one with the least of it attached.
+     * The shortest one in the group is the starting point, because the decoration banks add
+     * is almost always a suffix — the plainest string in the set is the one carrying the
+     * least of it. Then the same prefix strip [normalize] uses, and any word with a digit in
+     * it, because a store number is never part of a name.
+     *
+     * Three words rather than [normalize]'s two: this is for reading, not for grouping, and
+     * "Blue Bottle Coffee" is worth the extra line width that "Blue Bottle" saves.
      */
     private fun prettiestName(rows: List<Row>): String {
-        val raw = rows.minByOrNull { it.description.length }?.description.orEmpty().trim()
-        if (raw.isEmpty()) return "Unknown"
-        return raw.split(' ')
-            .filter { it.isNotBlank() }
-            .joinToString(" ") { word ->
-                if (word.length <= 3 && word.all { it.isUpperCase() }) {
-                    word
-                } else {
-                    word.lowercase().replaceFirstChar { it.uppercase() }
-                }
+        var raw = rows.minByOrNull { it.description.length }?.description.orEmpty().trim()
+        val upper = raw.uppercase()
+        for (prefix in NOISE_PREFIXES) {
+            if (upper.startsWith(prefix)) {
+                raw = raw.substring(prefix.length).trim()
+                break
             }
+        }
+
+        val words = raw.split(' ', '*', '\t')
+            .map { it.trim() }
+            .filter { word ->
+                word.length > 1 &&
+                    word.none { it.isDigit() } &&
+                    word.uppercase() !in NOISE_WORDS
+            }
+        if (words.isEmpty()) return "Unknown"
+
+        return words.take(3).joinToString(" ") { word ->
+            if (word.length <= 3 && word.all { it.isUpperCase() }) {
+                word
+            } else {
+                word.lowercase().replaceFirstChar { it.uppercase() }
+            }
+        }
     }
 
     private fun median(values: List<Long>): Long {
@@ -216,8 +242,17 @@ object Recurring {
         "WITHDRAWAL", "PAYMENT TO", "DIRECT DEBIT", "AUTOPAY",
     )
 
-    private val NOISE_TOKENS = listOf(
-        " RECURRING", " AUTOPAY", " PAYMENT", " PMT", " INC", " LLC", " LTD", " CO ",
-        " USA", " US", " COM",
+    /**
+     * Words that say nothing about which merchant this is.
+     *
+     * `SQ` and `TST` are the terminal prefixes Square and Toast prepend to the real
+     * merchant name, so dropping them improves the label. Deliberately absent: `PAYPAL`,
+     * which prefixes a genuinely different merchant every time — dropping it is right for
+     * the name and catastrophic for the grouping, since every PayPal charge you have ever
+     * made would become one recurring subscription.
+     */
+    private val NOISE_WORDS = setOf(
+        "RECURRING", "AUTOPAY", "PAYMENT", "PMT", "INC", "LLC", "LTD", "CO",
+        "USA", "US", "COM", "SQ", "TST", "THE",
     )
 }

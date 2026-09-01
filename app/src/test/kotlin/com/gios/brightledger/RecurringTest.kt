@@ -136,6 +136,30 @@ class RecurringTest {
         assertEquals(-13900L, found[0].amountCents)
     }
 
+    /**
+     * The label is what appears on screen, so the bank's scaffolding has to come off it too
+     * — an earlier version showed this charge as "Pos Debit 0412 Spotify Usa 8774".
+     */
+    @Test
+    fun `the display name drops the prefix and the store numbers`() {
+        val found = Recurring.detect(
+            rows(
+                Triple(start, -1099L, "POS DEBIT 0412 SPOTIFY USA 8774"),
+                Triple(start + 30 * day, -1099L, "POS DEBIT 0512 SPOTIFY USA 2211"),
+                Triple(start + 61 * day, -1099L, "POS DEBIT 0612 SPOTIFY USA 9034"),
+            ),
+        ).single()
+        assertEquals("Spotify", found.name)
+    }
+
+    @Test
+    fun `a square terminal prefix is not the merchant`() {
+        assertEquals(
+            Recurring.normalize("SQ *BLUE BOTTLE 1234"),
+            Recurring.normalize("BLUE BOTTLE COFFEE"),
+        )
+    }
+
     @Test
     fun `normalize strips the parts banks vary per charge`() {
         assertEquals(
@@ -147,6 +171,7 @@ class RecurringTest {
             Recurring.normalize("SQ *BLUE BOTTLE 9999"),
         )
         assertEquals("NETFLIX", Recurring.normalize("NETFLIX.COM 866-579-7172"))
+        assertEquals("AMAZON", Recurring.normalize("AMAZON.COM*2J40K1PL3"))
     }
 
     /** A monthly and a yearly charge are compared on what they cost per month. */
