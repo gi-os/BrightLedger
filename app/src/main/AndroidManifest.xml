@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      INTERNET is the whole network surface. Every request the app makes goes to the one
+      SimpleFIN server the user connected; there is no BrightLedger backend, no analytics
+      endpoint and no crash reporter.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Only for reading the setup-token QR during connect. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <!--
+      allowBackup is off. The credential is sealed with a non-exportable AndroidKeyStore
+      key, so a restored copy on another device would hold a blob nothing can open — worse
+      than starting empty, because the app would look connected and never sync.
+    -->
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="Ledger"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BrightLedger">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="Ledger"
+            android:theme="@style/Theme.BrightLedger">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
