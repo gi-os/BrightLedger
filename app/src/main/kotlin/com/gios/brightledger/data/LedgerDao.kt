@@ -51,6 +51,27 @@ interface LedgerDao {
     )
     fun transaction(accountId: String, txnId: String): Flow<TransactionWithAccount?>
 
+    /**
+     * Synchronous reads for the journal-bus ContentProvider, which answers on a Binder
+     * thread and cannot collect a Flow. Room forbids these on the main thread, which is
+     * exactly right: nothing in the app itself should call them.
+     */
+    @Query(
+        """
+        SELECT t.accountId, t.txnId, t.at, t.posted, t.amountCents, t.description, t.pending,
+               a.name AS accountName, a.currency AS currency
+        FROM transactions t
+        JOIN accounts a ON a.id = t.accountId
+        WHERE t.at >= :startSeconds AND t.at < :endSeconds
+        ORDER BY t.at
+        """,
+    )
+    fun postedBetween(startSeconds: Long, endSeconds: Long): List<TransactionWithAccount>
+
+    /** Settled rows only, feeding the recurring detector the same diet the UI feeds it. */
+    @Query("SELECT * FROM transactions WHERE pending = 0")
+    fun settledTransactions(): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions WHERE accountId = :accountId AND pending = 1 AND at >= :windowStart")
     suspend fun pendingIn(accountId: String, windowStart: Long): List<TransactionEntity>
 

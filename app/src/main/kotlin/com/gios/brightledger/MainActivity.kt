@@ -17,6 +17,7 @@ import androidx.navigation.navArgument
 import com.gios.brightledger.hw.LightKey
 import com.gios.brightledger.hw.LightKeys
 import com.gios.brightledger.hw.LocalWheelBus
+import com.gios.brightledger.bus.NightlySync
 import com.gios.brightledger.data.Connections
 import com.gios.brightledger.hw.WheelBus
 import com.gios.brightledger.ui.ConnectionsScreen
@@ -69,6 +70,9 @@ class MainActivity : ComponentActivity() {
         // set the vault is already open here and this is where the upgrade completes; with a
         // PIN it does nothing and the copy inside sync() finishes the job after unlock.
         if (Vault.key() != null) Connections.migrateLegacy(this)
+
+        // Idempotent: KEEP policy, so an already-queued nightly job keeps its slot.
+        NightlySync.ensureScheduled(this)
 
         // Balances and merchant names are exactly the sort of thing that should not end up
         // in the recents thumbnail or a screenshot taken by something else.

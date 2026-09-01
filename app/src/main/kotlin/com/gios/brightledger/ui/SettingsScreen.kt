@@ -17,9 +17,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightledger.BuildConfig
+import com.gios.brightledger.bus.NightlySync
+import com.gios.brightledger.data.Prefs
 import com.gios.brightledger.hw.WheelScroll
 import com.gios.brightledger.ui.theme.Faint
 import com.gios.brightledger.vault.Vault
@@ -37,6 +40,8 @@ fun SettingsScreen(
     val connections by vm.connections.collectAsStateWithLifecycle()
     val hideTotals by vm.hideTotals.collectAsStateWithLifecycle()
     var confirmDisconnect by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var nightly by remember { mutableStateOf(Prefs.nightlySync(context)) }
     var pinSet by remember { mutableStateOf(Vault.isPinSet()) }
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -65,6 +70,18 @@ fun SettingsScreen(
                 label = if (syncing) "Syncing…" else "Sync all history",
                 sub = "Re-reads about a year from every server, rather than the usual two weeks",
                 onClick = { vm.refresh(full = true) },
+            )
+            ToggleRow(
+                label = "Nightly sync while charging",
+                sub = "Refreshes every server once a day while the phone charges, so the " +
+                    "journal and this screen start the morning current. With a PIN lock on, " +
+                    "the credential stays sealed and the overnight run quietly skips.",
+                checked = nightly,
+                onToggle = { wanted ->
+                    Prefs.setNightlySync(context, wanted)
+                    NightlySync.ensureScheduled(context)
+                    nightly = wanted
+                },
             )
             MenuRow(
                 label = "Erase everything",

@@ -26,6 +26,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BrightLedger">
 
+        <!--
+          The journal bus. Exported and read-only: LightNotebook's journal queries day
+          spending, upcoming bills and sync freshness here. Writes throw, reads never do,
+          and everything served is the local Room cache - nothing here can reach a bank.
+        -->
+        <provider
+            android:name=".bus.DaysProvider"
+            android:authorities="com.gios.brightledger.days"
+            android:exported="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -16,6 +16,7 @@ object Prefs {
     private const val PREFS_NAME = "brightledger_prefs"
     private const val KEY_PINNED = "pinned_accounts"
     private const val KEY_HIDE_TOTALS = "hide_totals"
+    private const val KEY_NIGHTLY_SYNC = "nightly_sync"
 
     /** Account keys, as built by [AccountEntity.key]. */
     fun pinned(context: Context): Set<String> =
@@ -47,6 +48,17 @@ object Prefs {
 
     fun setHideTotalsByDefault(context: Context, hide: Boolean) {
         prefs(context).edit().putBoolean(KEY_HIDE_TOTALS, hide).apply()
+    }
+
+    /**
+     * Whether the charging-time background sync runs. Default on: the journal bus is only
+     * useful when its data is fresher than the last time the app happened to be opened.
+     */
+    fun nightlySync(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_NIGHTLY_SYNC, true)
+
+    fun setNightlySync(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_NIGHTLY_SYNC, enabled).apply()
     }
 
     private fun prefs(context: Context) =

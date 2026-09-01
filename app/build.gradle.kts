@@ -16,7 +16,7 @@ android {
         targetSdk = 35
         // CI overwrites both from the workflow run number; see .github/workflows/build.yml
         versionCode = 1
-        versionName = "1.4.0"
+        versionName = "1.5.0"
 
         // The LPIII is arm64 only; shipping four ABIs tripled the APK for nothing.
         ndk { abiFilters += "arm64-v8a" }
@@ -88,6 +88,9 @@ dependencies {
     // The entire network layer. No Retrofit: there are two endpoints, one of which is
     // called once, and a converter stack would be more code than the client it wraps.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Nightly charging-time sync. Runtime only: the one periodic job is built by hand.
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
