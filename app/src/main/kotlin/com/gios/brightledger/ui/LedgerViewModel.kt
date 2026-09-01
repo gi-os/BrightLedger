@@ -70,6 +70,19 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     private val _syncing = MutableStateFlow(false)
     val syncing: StateFlow<Boolean> = _syncing.asStateFlow()
 
+    /**
+     * Claiming a token, which is *not* the same thing as syncing.
+     *
+     * These were one flag until a scan silently did nothing. The home screen starts a
+     * refresh on every foregrounding, a refresh can sit on the network for ninety seconds,
+     * and the walk to the scanner takes less than that — so `connect` kept hitting a
+     * "already busy" guard that belonged to an unrelated background job, and returned
+     * without a request, a dialog, or any other trace. A user-initiated claim gets its own
+     * flag, and the only thing it refuses is a second claim.
+     */
+    private val _claiming = MutableStateFlow(false)
+    val claiming: StateFlow<Boolean> = _claiming.asStateFlow()
+
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
@@ -171,8 +184,13 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
      * a failure is reported as the serious thing it is rather than as a retryable error.
      */
     fun connect(token: String, label: String? = null, onDone: (Boolean) -> Unit) {
-        if (_syncing.value) return
-        _syncing.value = true
+        // Refusing is fine; refusing in silence is not. A dropped scan with no feedback is
+        // indistinguishable from a broken camera, and cost an evening finding that out.
+        if (_claiming.value) {
+            _message.value = "Still working on the last token. Give it a moment."
+            return
+        }
+        _claiming.value = true
         viewModelScope.launch {
             val outcome = withContext(Dispatchers.IO) { client.claim(token.trim()) }
             var newId: String? = null
@@ -197,7 +215,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
                 is SimpleFinClient.ClaimResult.Failed -> _message.value = outcome.message
             }
-            _syncing.value = false
+            _claiming.value = false
             refreshConnections()
 
             val id = newId

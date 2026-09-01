@@ -127,7 +127,7 @@ fun ScanScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        "Point at the QR code on the site's 2FA page",
+                        "Point at the setup-token QR code",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Dim,
                         textAlign = TextAlign.Center,

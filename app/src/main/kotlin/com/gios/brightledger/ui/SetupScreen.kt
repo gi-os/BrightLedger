@@ -54,7 +54,7 @@ fun SetupScreen(
 ) {
     var token by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
-    val syncing by vm.syncing.collectAsStateWithLifecycle()
+    val claiming by vm.claiming.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val scroll = rememberScrollState()
     WheelScroll(scroll)
@@ -67,7 +67,7 @@ fun SetupScreen(
                     if (onBack != null) add(BarAction("BACK", onBack))
                     add(BarAction("SCAN", onScan))
                     add(
-                        BarAction(if (syncing) "…" else "CONNECT") {
+                        BarAction(if (claiming) "CONNECTING" else "CONNECT") {
                             if (token.isNotBlank()) {
                                 vm.connect(token, name.takeIf { it.isNotBlank() }) { ok ->
                                     if (ok) onConnected()
