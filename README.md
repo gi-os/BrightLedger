@@ -15,7 +15,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v1.0.x.** See [Version history](#version-history).
+**Current version: v1.1.x.** See [Version history](#version-history).
 
 Open it and the first thing on screen is what you spent today, then this month, then what
 is in the accounts, then everything that has happened. That order is the design: "can I buy
@@ -51,6 +51,32 @@ leaves a live read credential behind.
 
 The Bridge charges a small monthly fee, paid by you to them. BrightLedger has no billing
 and never sees it.
+
+## More than one server
+
+The hosted Bridge is MX-backed and carries only US and Canadian institutions. Search it for
+Revolut and it returns nothing.
+
+SimpleFIN is a protocol rather than a company, though, and its own spec expects institutions
+to run their own servers, treating the Bridge as the fallback for the ones that do not. So
+BrightLedger holds a *list* of servers, and the fix for an unsupported bank is to point it at
+another one.
+
+[**simplefin-plaid**](https://github.com/gi-os/simplefin-plaid) is that other one: SimpleFIN v2
+on the front, Plaid on the back, Docker on your own machine. Anything Plaid can reach becomes
+an ordinary SimpleFIN account. The phone needed no new networking code for it — it already
+speaks the protocol and does not care whose server is answering.
+
+The one thing that had to change is the account key. SimpleFIN only guarantees an account id is
+unique **within one server**, so with two servers the server's own id is not a primary key any
+more. Two Bridges each numbering an account `1` would be one row, and the symptom is not a
+crash but a balance that flickers between two banks on every sync. Accounts key on
+`connectionId|remoteId`; the transaction key inherits it.
+
+Connections sync one at a time and report per server, so an unreachable self-hosted broker
+cannot stop the Bridge accounts refreshing, and each keeps its own history window — a shared
+last-success advanced by a healthy server would make a sick one skip everything that happened
+while it was down.
 
 ## Where the credential lives
 
@@ -195,6 +221,7 @@ same reason [BrightPasses](https://github.com/gi-os/BrightPasses) and
 
 | Version | What changed |
 | --- | --- |
+| v1.1.x | **More than one SimpleFIN server.** Connections screen with per-server status, errors and single-server retry; optional per-server name; partial sync failures no longer interrupt or block healthy servers; per-connection history windows. Accounts re-keyed on `connectionId|remoteId`, because a SimpleFIN account id is only unique within one server. Upgrades in place: the existing credential is re-filed as the first connection and keeps its last-sync |
 | v1.0.x | **First release.** SimpleFIN v2 client with one-time token claim and `403` handling; balances and a merged transaction feed; spend-today and spend-this-month summary; per-transaction detail; recurring-charge detection with per-month total; Access URL sealed under AndroidKeyStore with an optional PIN layer; offline-first Room cache with a 14-day overlapping sync window and pending sweep |
 
 ## Licence
