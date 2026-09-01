@@ -1,48 +1,40 @@
-**More than one SimpleFIN server**, so a bank the hosted Bridge has never heard of can still
-land in the same feed.
+**Fixes the v1.1 upgrade, which opened on "Connect a bank" as though your bank had been
+forgotten.** It had not been. Install this and it comes back on its own — no new token.
 
-### Why
+### What actually happened
 
-The Bridge is MX-backed and carries only US and Canadian institutions. Search it for Revolut
-and it returns nothing. But SimpleFIN is a protocol, not a company — its own spec expects
-institutions to run their own servers and treats the Bridge as the fallback for the ones that
-do not. So the answer is not to bolt a second API onto the phone, it is to point the phone at
-a second server.
+Nothing was deleted. The sealed credential sat in preferences the whole time. Three pieces
+that each looked right deadlocked around it:
 
-[**simplefin-plaid**](https://github.com/gi-os/simplefin-plaid) is that server: it speaks
-SimpleFIN v2 on the front and Plaid on the back, runs in Docker on your own machine, and makes
-anything Plaid can reach look like an ordinary SimpleFIN account. BrightLedger needed no new
-networking code for it at all.
+- `isConnected` counted only connections that had been migrated to the new list.
+- The navigation graph chose its start destination from `isConnected`.
+- The migration that fills that list ran only inside a sync — and a sync is triggered by the
+  home screen, which you never reached.
 
-### What changed
+So the app asked to connect a bank, and connecting one was the only thing that could not fix
+it. From the outside that is indistinguishable from a finance app losing your bank, which is
+about the worst thing this app could appear to do.
 
-- **Connections screen.** Every server, its own last-sync line, its own errors, tap to sync
-  just that one. Add and remove servers without touching the others.
-- **An optional name per server**, so two Bridges are tellable apart.
-- **Partial failures are normal now and behave like it.** One unreachable self-hosted broker
-  no longer stops the Bridge accounts refreshing, and a failure names the server it came from.
-  Only a sync where *nothing* got through interrupts you with a dialog.
-- **Each connection keeps its own history window.** A shared last-success advanced by a
-  healthy server would make a sick one skip everything that happened while it was down.
+### The fix
 
-### The bug this release exists to prevent
+`isConnected` now counts an unmigrated v1.0 credential, and the migration runs at startup as
+well as inside sync. Both are needed and neither is redundant: startup misses the PIN-locked
+case, where no key exists yet, and sync alone was the bug. With a PIN set it also runs
+immediately after unlock, before the graph composes, and the view model re-reads the list at
+that point — it was built at construction, which for a locked install is before any
+credential is readable.
 
-SimpleFIN only guarantees an account id is unique **within one server**. The moment the phone
-talks to two, the server's own id stops being a primary key: two Bridges each numbering an
-account `1` collapse into one row. There is no crash and no error — the balance simply
-flickers between two banks on every sync. Accounts now key on `connectionId|remoteId`, and the
-transaction key inherits it.
+A migration attempted with the vault shut now declines instead of consuming the credential,
+so the retry after unlock still has something to re-file. There is a test for that, and for
+the stranded state itself.
 
-### Upgrading
+### If you already tried to fix it by hand
 
-In place, with nothing to re-enter. Your existing Access URL is re-filed as the first
-connection rather than re-claimed, and it inherits its last-sync so nothing re-downloads a
-year. The cached transactions are dropped and re-fetched: the Room schema changed, and
-inventing a connection id for rows that predate the concept would strand them as orphans no
-sync ever touches. The cache is a copy of a server that still has everything.
+If you pasted a fresh token at that setup screen, you will have **two rows** under Settings →
+Servers after this update: the one you added, and your original coming back from migration.
+Same server, same accounts, and the balances and month total will read double until you
+remove one. Either is fine to keep — remove the other with Settings → Servers → Remove.
 
-### Still not here
-
-Transfer detection — a card and its checking account both connected still double-count the
-payment between them. No categories. No background sync, which matters more now: see the notes
-on the repo about why an aggregator cannot tell you about a charge the moment it happens.
+**This is a one-time upgrade path, not something that recurs.** Once the credential is on the
+new list the legacy key is gone and the migration never runs again. Ordinary updates from
+here do not touch your connections.

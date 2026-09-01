@@ -15,7 +15,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v1.1.x.** See [Version history](#version-history).
+**Current version: v1.2.x.** See [Version history](#version-history).
 
 Open it and the first thing on screen is what you spent today, then this month, then what
 is in the accounts, then everything that has happened. That order is the design: "can I buy
@@ -221,6 +221,7 @@ same reason [BrightPasses](https://github.com/gi-os/BrightPasses) and
 
 | Version | What changed |
 | --- | --- |
+| v1.2.x | **Fixes the v1.1 upgrade**, which opened on "Connect a bank" as though the existing bank had been forgotten. Nothing was deleted: `isConnected` counted only migrated connections, the start destination was chosen from it, and the migration ran only inside a sync the setup screen never triggers. Migration now runs at startup and after unlock as well as in sync, an unmigrated v1.0 credential counts as connected, and a migration attempted with the vault shut declines rather than consuming it |
 | v1.1.x | **More than one SimpleFIN server.** Connections screen with per-server status, errors and single-server retry; optional per-server name; partial sync failures no longer interrupt or block healthy servers; per-connection history windows. Accounts re-keyed on `connectionId|remoteId`, because a SimpleFIN account id is only unique within one server. Upgrades in place: the existing credential is re-filed as the first connection and keeps its last-sync |
 | v1.0.x | **First release.** SimpleFIN v2 client with one-time token claim and `403` handling; balances and a merged transaction feed; spend-today and spend-this-month summary; per-transaction detail; recurring-charge detection with per-month total; Access URL sealed under AndroidKeyStore with an optional PIN layer; offline-first Room cache with a 14-day overlapping sync window and pending sweep |
 
