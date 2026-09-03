@@ -39,7 +39,6 @@ fun SettingsScreen(
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     val connections by vm.connections.collectAsStateWithLifecycle()
     val hideTotals by vm.hideTotals.collectAsStateWithLifecycle()
-    val demo by vm.demo.collectAsStateWithLifecycle()
     var confirmDisconnect by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var nightly by remember { mutableStateOf(Prefs.nightlySync(context)) }
@@ -52,21 +51,6 @@ fun SettingsScreen(
         bottomBar = { ActionBar(listOf(BarAction("BACK", onBack))) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(scroll)) {
-
-            SectionLabel("Demo")
-            ToggleRow(
-                label = "Demo mode",
-                sub = if (demo) {
-                    "ON — every figure on screen is invented, and screenshots are allowed. " +
-                        "Turn this off when you are done."
-                } else {
-                    "Replace all account and transaction data with a synthetic set, and " +
-                        "allow screenshots. For capturing the app without capturing your " +
-                        "bank. Temporary; it will be removed in a later version."
-                },
-                checked = demo,
-                onToggle = vm::setDemoMode,
-            )
 
             SectionLabel("Data")
             MenuRow(

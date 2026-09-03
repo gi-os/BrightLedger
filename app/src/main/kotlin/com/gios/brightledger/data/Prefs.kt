@@ -17,7 +17,6 @@ object Prefs {
     private const val KEY_PINNED = "pinned_accounts"
     private const val KEY_HIDE_TOTALS = "hide_totals"
     private const val KEY_NIGHTLY_SYNC = "nightly_sync"
-    private const val KEY_DEMO = "demo_mode"
 
     /** Account keys, as built by [AccountEntity.key]. */
     fun pinned(context: Context): Set<String> =
@@ -63,16 +62,15 @@ object Prefs {
     }
 
     /**
-     * Demo mode: a synthetic ledger in place of the real one, for screenshots.
+     * Clears the flag left behind by the demo mode that shipped in v1.6.
      *
-     * **Temporary and scheduled for removal.** Persisted rather than held in memory only
-     * because taking screenshots involves backgrounding the app repeatedly, and a flag that
-     * reset on its own is how a real balance ends up in a published image.
+     * The feature is gone and the flag is already ignored, so this changes no behavior. It
+     * runs anyway because a stale key named `demo_mode` sitting in a finance app's
+     * preferences is the sort of thing that reads badly to whoever looks next, and removing
+     * it costs one line at startup.
      */
-    fun demoMode(context: Context): Boolean = prefs(context).getBoolean(KEY_DEMO, false)
-
-    fun setDemoMode(context: Context, on: Boolean) {
-        prefs(context).edit().putBoolean(KEY_DEMO, on).apply()
+    fun dropRetiredKeys(context: Context) {
+        prefs(context).edit().remove("demo_mode").apply()
     }
 
     private fun prefs(context: Context) =

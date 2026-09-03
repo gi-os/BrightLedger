@@ -20,6 +20,7 @@ import com.gios.brightledger.hw.LightKeys
 import com.gios.brightledger.hw.LocalWheelBus
 import com.gios.brightledger.bus.NightlySync
 import com.gios.brightledger.data.Connections
+import com.gios.brightledger.data.Prefs
 import com.gios.brightledger.hw.WheelBus
 import com.gios.brightledger.ui.ConnectionsScreen
 import com.gios.brightledger.ui.HomeScreen
@@ -72,8 +73,18 @@ class MainActivity : ComponentActivity() {
         // PIN it does nothing and the copy inside sync() finishes the job after unlock.
         if (Vault.key() != null) Connections.migrateLegacy(this)
 
+        Prefs.dropRetiredKeys(this)
+
         // Idempotent: KEEP policy, so an already-queued nightly job keeps its slot.
         NightlySync.ensureScheduled(this)
+
+        // Balances and merchant names have no business in the recents thumbnail or in a
+        // screenshot taken by something else. Unconditional again: demo mode was the one
+        // exception and it has been removed, so there is now no way to photograph this app.
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE,
+        )
 
         setContent {
             BrightLedgerTheme {
@@ -81,25 +92,6 @@ class MainActivity : ComponentActivity() {
                 val vm: LedgerViewModel = viewModel()
                 viewModelRef = vm
                 val vaultState by Vault.state.collectAsStateWithLifecycle()
-                val demo by vm.demo.collectAsStateWithLifecycle()
-
-                // Balances and merchant names have no business in the recents thumbnail or
-                // in a screenshot taken by something else, so FLAG_SECURE is the default.
-                // Demo mode is the single exception, and it is not a coincidence that it is
-                // also the only mode with no real data on screen: the way to photograph this
-                // app is to photograph fake numbers.
-                LaunchedEffect(demo) {
-                    if (demo) {
-                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    } else {
-                        window.setFlags(
-                            WindowManager.LayoutParams.FLAG_SECURE,
-                            WindowManager.LayoutParams.FLAG_SECURE,
-                        )
-                    }
-                }
-                val connected by vm.connected.collectAsStateWithLifecycle()
-
                 CompositionLocalProvider(LocalWheelBus provides wheel) {
                     if (vaultState == VaultState.Locked) {
                         // Not a route. A locked vault must not be something the back stack
@@ -201,7 +193,6 @@ class MainActivity : ComponentActivity() {
                                 ),
                             ) { entry ->
                                 TransactionScreen(
-                                    vm = vm,
                                     accountId = entry.arguments?.getString("account").orEmpty(),
                                     txnId = entry.arguments?.getString("txn").orEmpty(),
                                     onBack = { nav.popBackStack() },

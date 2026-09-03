@@ -7,7 +7,6 @@ import com.gios.brightledger.data.AccountEntity
 import com.gios.brightledger.data.Connections
 import com.gios.brightledger.data.LedgerRepository
 import com.gios.brightledger.data.Prefs
-import com.gios.brightledger.demo.Demo
 import com.gios.brightledger.data.SyncState
 import com.gios.brightledger.data.TransactionWithAccount
 import com.gios.brightledger.ledger.Recurring
@@ -32,26 +31,15 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     private val client = SimpleFinClient()
 
     /**
-     * Demo mode. Temporary, for screenshots, and scheduled for removal.
-     *
-     * It is applied here, at the single point every screen reads from, rather than in the
-     * composables. Everything downstream — the totals header, the recurring detector, the
-     * detail page — then works through its normal path on synthetic rows, so what gets
-     * photographed is the real app with different numbers in it rather than a mock-up that
-     * will drift away from the app.
-     */
-    private val _demo = MutableStateFlow(Prefs.demoMode(app))
-    val demo: StateFlow<Boolean> = _demo.asStateFlow()
-
-    /**
      * The one feed every derived value reads.
      *
-     * Totals and recurring used to subscribe to `repo.dao.feed()` separately. That was fine
-     * until demo mode, at which point three independent subscriptions would each need the
-     * swap applied and any one of them missing it would show real numbers next to fake ones.
+     * Kept from the demo-mode work, which is the only good thing that came out of it. Totals
+     * and recurring each used to subscribe to the dao separately, which meant three
+     * independent subscriptions to the same query and three places to keep in step. One
+     * source, three derivations.
      */
     private val feedSource: kotlinx.coroutines.flow.Flow<List<TransactionWithAccount>> =
-        combine(repo.dao.feed(), _demo) { rows, demo -> if (demo) Demo.feed() else rows }
+        repo.dao.feed()
 
     private val _pinned = MutableStateFlow(Prefs.pinned(app))
     val pinned: StateFlow<Set<String>> = _pinned.asStateFlow()
@@ -65,8 +53,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
      * database — see [Prefs] for why.
      */
     val accounts: StateFlow<List<AccountEntity>> =
-        combine(repo.dao.accounts(), _pinned, _demo) { real, pins, demo ->
-            val list = if (demo) Demo.accounts() else real
+        combine(repo.dao.accounts(), _pinned) { list, pins ->
             list.sortedWith(
                 compareByDescending<AccountEntity> { it.id in pins }
                     .thenByDescending { it.balanceCents },
@@ -147,12 +134,7 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     private val _needsReconnect = MutableStateFlow<Set<String>>(emptySet())
     val needsReconnect: StateFlow<Set<String>> = _needsReconnect.asStateFlow()
 
-    fun lastSyncSeconds(): Long =
-        if (_demo.value) Demo.lastSync() else SyncState.lastSuccessAny(getApplication())
-
-    /** One row for the detail screen, which in demo mode is not in the database. */
-    fun demoTransaction(accountId: String, txnId: String): TransactionWithAccount? =
-        if (_demo.value) Demo.transaction(accountId, txnId) else null
+    fun lastSyncSeconds(): Long = SyncState.lastSuccessAny(getApplication())
 
     fun lastSyncFor(connectionId: String): Long =
         SyncState.lastSuccess(getApplication(), connectionId)
@@ -170,11 +152,6 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     fun onVaultOpened() {
         refreshConnections()
         refresh()
-    }
-
-    fun setDemoMode(on: Boolean) {
-        Prefs.setDemoMode(getApplication(), on)
-        _demo.value = on
     }
 
     fun togglePin(accountKey: String) {
@@ -195,9 +172,6 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
     /** Called from `onStop`. Anything revealed this session goes back under. */
     fun onBackgrounded() {
         _hideTotals.value = Prefs.hideTotalsByDefault(getApplication())
-        // Demo mode deliberately does *not* reset here. A screenshot session is a dozen
-        // trips in and out of the app, and a flag that reset on its own would put a real
-        // balance in the next shot.
     }
 
     fun dismissMessage() {

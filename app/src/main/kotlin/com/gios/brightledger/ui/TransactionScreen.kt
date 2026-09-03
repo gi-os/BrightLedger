@@ -36,19 +36,14 @@ import androidx.compose.runtime.remember
  */
 @Composable
 fun TransactionScreen(
-    vm: LedgerViewModel,
     accountId: String,
     txnId: String,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     val repo = remember { LedgerRepository.get(context) }
-    val stored by repo.dao.transaction(accountId, txnId)
+    val txn by repo.dao.transaction(accountId, txnId)
         .collectAsStateWithLifecycle(initialValue = null)
-    // Demo rows are generated, never written, so the query behind this screen finds nothing
-    // for them. Preferring the synthetic row keeps the tap-through working in a screenshot
-    // session without putting fabricated data anywhere near the database.
-    val txn = vm.demoTransaction(accountId, txnId) ?: stored
 
     Scaffold(
         containerColor = Color.Black,

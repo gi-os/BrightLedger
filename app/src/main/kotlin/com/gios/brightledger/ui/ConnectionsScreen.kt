@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gios.brightledger.data.Connections
-import com.gios.brightledger.demo.Demo
 import com.gios.brightledger.hw.WheelScroll
 import com.gios.brightledger.ui.theme.Faint
 
@@ -38,15 +37,7 @@ fun ConnectionsScreen(
     onBack: () -> Unit,
     onAdd: () -> Unit,
 ) {
-    val realConnections by vm.connections.collectAsStateWithLifecycle()
-    val demo by vm.demo.collectAsStateWithLifecycle()
-    // The servers screen names hosts, and a host is identifying. In demo mode it shows one
-    // invented row instead.
-    val connections = if (demo) {
-        listOf(Connections.Connection(Demo.CONNECTION_ID, Demo.connectionLabel(), Demo.HOST))
-    } else {
-        realConnections
-    }
+    val connections by vm.connections.collectAsStateWithLifecycle()
     val needsReconnect by vm.needsReconnect.collectAsStateWithLifecycle()
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     var confirmRemove by remember { mutableStateOf<Connections.Connection?>(null) }
