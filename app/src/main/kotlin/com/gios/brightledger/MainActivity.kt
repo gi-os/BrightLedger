@@ -6,7 +6,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -92,6 +91,8 @@ class MainActivity : ComponentActivity() {
                 val vm: LedgerViewModel = viewModel()
                 viewModelRef = vm
                 val vaultState by Vault.state.collectAsStateWithLifecycle()
+                val connected by vm.connected.collectAsStateWithLifecycle()
+
                 CompositionLocalProvider(LocalWheelBus provides wheel) {
                     if (vaultState == VaultState.Locked) {
                         // Not a route. A locked vault must not be something the back stack
