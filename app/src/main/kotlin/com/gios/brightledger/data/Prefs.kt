@@ -17,6 +17,7 @@ object Prefs {
     private const val KEY_PINNED = "pinned_accounts"
     private const val KEY_HIDE_TOTALS = "hide_totals"
     private const val KEY_NIGHTLY_SYNC = "nightly_sync"
+    private const val KEY_DEMO = "demo_mode"
 
     /** Account keys, as built by [AccountEntity.key]. */
     fun pinned(context: Context): Set<String> =
@@ -59,6 +60,19 @@ object Prefs {
 
     fun setNightlySync(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_NIGHTLY_SYNC, enabled).apply()
+    }
+
+    /**
+     * Demo mode: a synthetic ledger in place of the real one, for screenshots.
+     *
+     * **Temporary and scheduled for removal.** Persisted rather than held in memory only
+     * because taking screenshots involves backgrounding the app repeatedly, and a flag that
+     * reset on its own is how a real balance ends up in a published image.
+     */
+    fun demoMode(context: Context): Boolean = prefs(context).getBoolean(KEY_DEMO, false)
+
+    fun setDemoMode(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DEMO, on).apply()
     }
 
     private fun prefs(context: Context) =

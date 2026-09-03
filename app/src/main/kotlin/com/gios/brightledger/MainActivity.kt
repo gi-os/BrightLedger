@@ -6,6 +6,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -74,19 +75,29 @@ class MainActivity : ComponentActivity() {
         // Idempotent: KEEP policy, so an already-queued nightly job keeps its slot.
         NightlySync.ensureScheduled(this)
 
-        // Balances and merchant names are exactly the sort of thing that should not end up
-        // in the recents thumbnail or a screenshot taken by something else.
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE,
-        )
-
         setContent {
             BrightLedgerTheme {
                 val nav = rememberNavController()
                 val vm: LedgerViewModel = viewModel()
                 viewModelRef = vm
                 val vaultState by Vault.state.collectAsStateWithLifecycle()
+                val demo by vm.demo.collectAsStateWithLifecycle()
+
+                // Balances and merchant names have no business in the recents thumbnail or
+                // in a screenshot taken by something else, so FLAG_SECURE is the default.
+                // Demo mode is the single exception, and it is not a coincidence that it is
+                // also the only mode with no real data on screen: the way to photograph this
+                // app is to photograph fake numbers.
+                LaunchedEffect(demo) {
+                    if (demo) {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    } else {
+                        window.setFlags(
+                            WindowManager.LayoutParams.FLAG_SECURE,
+                            WindowManager.LayoutParams.FLAG_SECURE,
+                        )
+                    }
+                }
                 val connected by vm.connected.collectAsStateWithLifecycle()
 
                 CompositionLocalProvider(LocalWheelBus provides wheel) {
@@ -190,6 +201,7 @@ class MainActivity : ComponentActivity() {
                                 ),
                             ) { entry ->
                                 TransactionScreen(
+                                    vm = vm,
                                     accountId = entry.arguments?.getString("account").orEmpty(),
                                     txnId = entry.arguments?.getString("txn").orEmpty(),
                                     onBack = { nav.popBackStack() },
