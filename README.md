@@ -15,7 +15,7 @@ install or update it directly. Don't have BrightMarket yet? Get it, and browse
 every Bright app, at
 **[brightmarket.gzl.dev](https://brightmarket.gzl.dev)**.
 
-**Current version: v1.5.x.** See [Version history](#version-history).
+**Current version: v1.6.x.** See [Version history](#version-history).
 
 Open it and the first thing on screen is what you spent today, then this month, then what
 is in the accounts, then everything that has happened. That order is the design: "can I buy
@@ -241,6 +241,7 @@ admits) even while the app is PIN-locked.
 
 | Version | What changed |
 | --- | --- |
+| v1.6.x | **Demo mode**, temporary and for screenshots: a synthetic ledger replaces the real one at the single point every screen reads from, so the header, the recurring detector and the detail page all run their ordinary code on invented rows. `FLAG_SECURE` is dropped only while it is on, so the only way to photograph the app is to photograph fake figures |
 | v1.5.x | **The journal bus, and a nightly sync to feed it.** A read-only ContentProvider at `content://com.gios.brightledger.days` that other Light apps — LightNotebook's journal first — can query: `spending/<yyyy-MM-dd>` for a local calendar day's transactions (`postedAt` ms, `merchant`, `amountCents` signed as stored, `account`, `pending`), `bills/upcoming` for the recurring detector's projected charges over the next 35 days (`dueEpochDay`, `merchant`, `amountCents`, `cadenceDays`), and `status` for `syncedAt`. Writes throw, reads never do — anything unexpected is an empty cursor — and day windows are local-midnight-to-local-midnight, so DST days keep their 23 or 25 hours. Plus a WorkManager sync that runs once a day while charging (Settings → "Nightly sync while charging", default on) so the journal reads this morning's numbers, not last-open's; with a PIN set the credential stays sealed and the overnight run quietly skips |
 | v1.4.x | **Pin accounts, hide amounts, auto-hiding bottom bar.** Long-press an account to float it above the rest, with pins in preferences rather than the cache table that gets destructively migrated. A setting masks the spend total and balances, tap the header to reveal, re-hides on background. The bottom bar hides as you scroll down using BrightNotebook's `ChromeScroll` — including its fix for a list at its last pixel clamping its own scroll and oscillating the bar |
 | v1.3.x | **Fixes a scanned setup token silently doing nothing.** `connect()` guarded on the same busy flag as the background refresh, so a scan landing inside a sync's ninety-second network window returned with no request, no dialog and nothing in the field — indistinguishable from a broken camera. Claiming has its own flag now, and says so when it refuses |

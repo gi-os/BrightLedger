@@ -1,48 +1,52 @@
-Three things: **pin accounts, hide amounts, and the bottom bar gets out of the way.**
+**Demo mode**, so the app can be photographed without photographing a bank account.
 
-### Pin an account
+> **Temporary.** This is here to take screenshots with and is scheduled for removal. All of
+> it is one file, one preference and four call sites, so taking it out later is a delete
+> rather than an unpick.
 
-**Long-press it.** A pinned account floats above the rest and carries a small square before
-its name.
+### Using it
 
-Accounts were sorted by balance descending, which is a reasonable guess and usually the wrong
-one — the account you actually check is your current account, not your biggest.
+**Settings → Demo → Demo mode.** Every figure on screen becomes invented, and screenshots
+start working. Turn it off when you are done — it survives backgrounding on purpose, because
+a screenshot session is a dozen trips in and out of the app and a flag that reset on its own
+is how a real balance ends up in a published image.
 
-Pins are stored in preferences, not in the accounts table. That table is a *cache*: it gets
-destructively migrated on any schema change and dropped entirely on disconnect, because the
-server still has everything. A pin is the one thing on that screen the server does not know
-and cannot send back, so storing it there would have made it the only local data in the app
-and guaranteed the next migration quietly ate it.
+### It replaces the data, it does not obscure it
 
-### Hide amounts
+The first version of this transformed real rows — renamed merchants, scaled amounts — and
+that is wrong twice over. It leaks the shape of the real data: how many accounts you have,
+how often you shop, roughly what you are worth. And it produces a bad screenshot whenever
+reality is dull, which is most days: nothing spent today, one account, a quiet week.
 
-New setting under **Settings → Security**. With it on, the spend total and account balances
-start masked. **Tap the header on the home screen** to reveal them, and they re-hide the
-moment the app leaves the foreground — the same rule the PIN lock already follows. A reveal
-that survived backgrounding would make the setting decorative.
+Generating from nothing always looks like the app working, and cannot leak what it never read.
 
-Two deliberate limits:
+### What you get
 
-- **Transaction amounts are never masked.** Hiding is for the numbers someone can read at a
-  glance and learn something from. A line item only means anything if you are already reading
-  the screen properly.
-- **The mask is fixed width**, not one bullet per digit. Digit-for-digit masking leaks the
-  magnitude, and the difference between three figures and five is most of what a
-  shoulder-reader is after.
+Three accounts including a card with a negative balance, about three months of plausible
+spending with a pending charge at the top, two paychecks, and four genuine monthly
+subscriptions.
 
-### The bottom bar hides while you scroll
+The swap happens at the single point every screen reads from, so the totals header, the
+recurring detector and the transaction detail page all run their ordinary code against the
+synthetic rows. What gets photographed is the real app with different numbers in it, not a
+mock-up that will quietly drift away from the app.
 
-Scroll down and it goes; scroll up and it comes back. Direction of travel, not position, so a
-long feed does not permanently hide its own controls once you are past the top.
+That also forced a small refactor worth mentioning: the totals and the repeats each
+subscribed to the feed independently, and three separate subscriptions would each have needed
+the swap applied. Any one of them missing it would have put real numbers on screen next to
+fake ones. There is one feed source now.
 
-This is BrightNotebook's `ChromeScroll` taken verbatim, tests and all, and it was worth taking
-rather than rewriting. The non-obvious part: hiding the bar makes the list *taller*, and a
-list already at its last pixel answers a taller viewport by clamping its own scroll — the
-offset drops with no finger involved. A naive direction rule reads that as an up-scroll, shows
-the bar, which shrinks the viewport, which pushes the content back down, and the bottom of the
-list oscillates every time you reach it. So an up-scroll only counts while the list still has
-somewhere forward to go.
+### Screenshots
 
-The bar also paints its own background now and animates height only. `AnimatedVisibility`
-defaults include a fade, and a bar sitting at partial alpha with the list moving underneath
-reads as a rendering fault rather than an animation.
+`FLAG_SECURE` is dropped **only** while demo mode is on. Real balances and merchant names stay
+out of screenshots and out of the recents thumbnail, and the only way to photograph this app
+is to photograph invented figures. That is not a coincidence in the design; it is the point.
+
+### On the tests
+
+The synthetic subscriptions were originally planted 17 to 19 days apart, and the recurring
+detector — correctly — called them all biweekly. The Repeats screen would have been
+confidently wrong in a screenshot, and nobody would have found out until the camera was out.
+A monthly charge needs sixty days of history before three occurrences exist, so the feed now
+reaches back further than anyone will scroll. The tests name the four subscriptions and check
+each one's cadence.
