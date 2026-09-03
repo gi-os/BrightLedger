@@ -69,12 +69,18 @@ class DemoTest {
                 .filterNot { it.pending }
                 .map { Recurring.Row(it.at, it.amountCents, it.description) },
         )
-        assertTrue("expected several repeats, found " + found.size, found.size >= 3)
-        assertTrue(found.all { it.cadence == Recurring.Cadence.Monthly })
+        assertTrue("expected several repeats, found " + found.size, found.size >= 4)
 
-        val names = found.map { it.name.lowercase() }
-        assertTrue("Netflix should be detected, got $names", names.any { "netflix" in it })
-        assertTrue("Spotify should be detected, got $names", names.any { "spotify" in it })
+        // Named rather than counted, and checked for cadence individually. Asserting that
+        // *everything* found is monthly was the wrong shape: it fails on an incidental
+        // pattern the generator did not intend, which says nothing about whether the
+        // subscriptions the screenshot is meant to show came out right.
+        val byName = found.associateBy { it.name.lowercase() }
+        for (expected in listOf("netflix", "spotify", "con edison", "verizon")) {
+            val hit = byName.entries.firstOrNull { expected in it.key }?.value
+            assertTrue("$expected should be detected, got " + byName.keys, hit != null)
+            assertEquals(expected, Recurring.Cadence.Monthly, hit!!.cadence)
+        }
     }
 
     @Test

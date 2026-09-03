@@ -110,32 +110,38 @@ object Demo {
         add(1, 6, -6_450, "LUCALI")
         add(1, 9, -899, "NYT DIGITAL")
 
-        add(2, 4, -1_599, "NETFLIX")
         add(2, 8, -2_237, "WHOLE FOODS BOWERY")
 
-        add(3, 5, -1_099, "SPOTIFY USA")
         add(3, 9, -4_800, "SHAPE HOUSE")
         add(4, 3, -812, "BODEGA DELI")
         add(5, 6, -12_400, "UNIQLO SOHO")
-        add(6, 2, -430, "BLUE BOTTLE COFFEE")
+        add(6, 2, -505, "BLUE BOTTLE COFFEE")
         add(7, 4, -2_995, "APPLE STORE")
         add(8, 7, -1_780, "ROSS & DAUGHTERS")
         add(9, 5, -640, "BLUE BOTTLE COFFEE")
-        add(11, 3, -8_900, "CON EDISON", card = false)
         add(12, 6, -2_140, "CVS 4021")
         add(14, 2, -1_950, "ANGELIKA FILM CENTER")
         add(15, 8, -3_410, "TRADER JOES 545")
         add(18, 4, -1_099, "AMAZON")
-        add(21, 5, -1_599, "NETFLIX")
-        add(22, 3, -1_099, "SPOTIFY USA")
-        add(24, 6, -5_600, "VERIZON WIRELESS", card = false)
         add(26, 2, -710, "BLUE BOTTLE COFFEE")
         add(28, 7, -4_250, "SUNDAY IN BROOKLYN")
-        add(31, 4, -8_900, "CON EDISON", card = false)
         add(33, 5, -2_890, "DUANE READE")
-        add(36, 3, -1_099, "SPOTIFY USA")
-        add(38, 6, -1_599, "NETFLIX")
-        add(40, 2, -5_600, "VERIZON WIRELESS", card = false)
+
+        // The repeats, at a genuine thirty-day cadence.
+        //
+        // The detector requires three occurrences and every gap to match the median, which
+        // is what stops three coffees reading as a subscription. That means a monthly
+        // charge needs sixty days of history before it can be recognised at all, so the
+        // synthetic feed reaches back further than the part anyone will scroll to. Planting
+        // them nineteen days apart, as the first version did, produced a Repeats screen that
+        // confidently called everything biweekly.
+        for (month in 0..2) {
+            val shift = month * 30L
+            add(2 + shift, 4, -1_599, "NETFLIX")
+            add(5 + shift, 5, -1_099, "SPOTIFY USA")
+            add(11 + shift, 3, -8_900, "CON EDISON", card = false)
+            add(24 + shift, 6, -5_600, "VERIZON WIRELESS", card = false)
+        }
 
         // Money in, so the sign handling is visible and the month has a credit in it.
         add(2, 11, 320_000, "ACME CORP PAYROLL", card = false)
