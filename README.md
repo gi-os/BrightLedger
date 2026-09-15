@@ -1,5 +1,7 @@
 # BrightLedger
 
+[**⬇ Download the latest APK**](https://github.com/gi-os/BrightLedger/releases/latest) · free, open source.
+
 Bank balances and transactions on the **Light Phone III**, over the
 [SimpleFIN](https://www.simplefin.org/protocol.html) protocol. Shows up on the phone as
 **Ledger** (`com.gios.brightledger`).
