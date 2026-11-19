@@ -257,7 +257,8 @@ admits) even while the app is PIN-locked.
 ## Build and release signing
 
 `./gradlew :app:assembleRelease` builds an unsigned APK. Debug builds use the standard
-Android debug key; they cannot update a production install. The **Check** workflow tests
+Android debug key, which varies across CI runners. Use a local build for repeat debug
+installs; a debug APK cannot update a production install. The **Check** workflow tests
 signing with disposable keys and never publishes.
 
 Before merging this change, disable [Build & Release APK](https://github.com/gi-os/BrightLedger/actions/workflows/build.yml).
@@ -285,8 +286,11 @@ Verify signer #1's SHA-256 digest against `signing-lineage-root-fingerprint.txt`
 replace `signing-fingerprint.txt` in this PR with signer #2's SHA-256 digest. Do not
 change the original pin. The release won't publish while the pins are still identical.
 
-In [BrightLedger's Actions secrets](https://github.com/gi-os/BrightLedger/settings/secrets/actions),
-add the new key and lineage only, never the original key or its passwords:
+In [BrightLedger's environment settings](https://github.com/gi-os/BrightLedger/settings/environments),
+create an environment named `release`. Under **Deployment branches and tags**, choose
+**Selected branches and tags** and add a single **Branch** rule for `main`, with no tag
+rules. Add the five secrets below to that environment only. Do not use repository-wide
+secrets or upload the original key or its passwords.
 
 | Secret | Value |
 | --- | --- |
@@ -299,11 +303,11 @@ add the new key and lineage only, never the original key or its passwords:
 On Linux, stream the files and enter the passwords at the prompts:
 
 ```sh
-base64 -w 0 brightledger-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --repo gi-os/BrightLedger
-base64 -w 0 brightledger.lineage | gh secret set SIGNING_LINEAGE_BASE64 --repo gi-os/BrightLedger
-gh secret set KEYSTORE_PASSWORD --repo gi-os/BrightLedger
-gh secret set KEY_ALIAS --repo gi-os/BrightLedger --body brightledger-release
-gh secret set KEY_PASSWORD --repo gi-os/BrightLedger
+base64 -w 0 brightledger-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo gi-os/BrightLedger
+base64 -w 0 brightledger.lineage | gh secret set SIGNING_LINEAGE_BASE64 --env release --repo gi-os/BrightLedger
+gh secret set KEYSTORE_PASSWORD --env release --repo gi-os/BrightLedger
+gh secret set KEY_ALIAS --env release --repo gi-os/BrightLedger --body brightledger-release
+gh secret set KEY_PASSWORD --env release --repo gi-os/BrightLedger
 ```
 
 CI supplies only the new private key to `scripts/sign-release.sh` and checks that the APK's
