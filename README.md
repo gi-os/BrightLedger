@@ -254,6 +254,75 @@ admits) even while the app is PIN-locked.
 | v1.1.x | **More than one SimpleFIN server.** Connections screen with per-server status, errors and single-server retry; optional per-server name; partial sync failures no longer interrupt or block healthy servers; per-connection history windows. Accounts re-keyed on `connectionId|remoteId`, because a SimpleFIN account id is only unique within one server. Upgrades in place: the existing credential is re-filed as the first connection and keeps its last-sync |
 | v1.0.x | **First release.** SimpleFIN v2 client with one-time token claim and `403` handling; balances and a merged transaction feed; spend-today and spend-this-month summary; per-transaction detail; recurring-charge detection with per-month total; Access URL sealed under AndroidKeyStore with an optional PIN layer; offline-first Room cache with a 14-day overlapping sync window and pending sweep |
 
+## Build and release signing
+
+`./gradlew :app:assembleRelease` builds an unsigned APK. Debug builds use the standard
+Android debug key, which varies across CI runners. Use a local build for repeat debug
+installs; a debug APK cannot update a production install. The **Check** workflow tests
+signing with disposable keys and never publishes.
+
+Before merging this change, disable [Build & Release APK](https://github.com/gi-os/BrightLedger/actions/workflows/build.yml).
+A push to `main` otherwise publishes. Keep it disabled until the rotation and distribution
+checks below are done and you intend to publish.
+
+In a private directory outside the checkout, use Android Build Tools 35.0.0. Use the
+original `keystore/brightledger.jks` from a checkout before this change and its existing
+passwords only for the offline rotation step. Use fresh passwords for the new key.
+
+```sh
+umask 077
+keytool -genkeypair -storetype JKS -keystore brightledger-new.jks -alias brightledger-release \
+  -keyalg RSA -keysize 3072 -validity 10000
+
+apksigner rotate --out brightledger.lineage \
+  --old-signer --ks /path/to/original/brightledger.jks --ks-key-alias brightledger \
+  --set-installed-data true --set-rollback false \
+  --new-signer --ks brightledger-new.jks --ks-key-alias brightledger-release
+
+apksigner lineage --in brightledger.lineage --print-certs
+```
+
+Verify signer #1's SHA-256 digest against `signing-lineage-root-fingerprint.txt` and
+replace `signing-fingerprint.txt` in this PR with signer #2's SHA-256 digest. Do not
+change the original pin. The release won't publish while the pins are still identical.
+
+In [BrightLedger's environment settings](https://github.com/gi-os/BrightLedger/settings/environments),
+create an environment named `release`. Under **Deployment branches and tags**, choose
+**Selected branches and tags** and add a single **Branch** rule for `main`, with no tag
+rules. Add the five secrets below to that environment only. Do not use repository-wide
+secrets or upload the original key or its passwords.
+
+| Secret | Value |
+| --- | --- |
+| `RELEASE_KEYSTORE_BASE64` | Base64-encoded `brightledger-new.jks` |
+| `SIGNING_LINEAGE_BASE64` | Base64-encoded `brightledger.lineage` |
+| `KEYSTORE_PASSWORD` | New keystore password |
+| `KEY_ALIAS` | `brightledger-release` |
+| `KEY_PASSWORD` | New key password |
+
+On Linux, stream the files and enter the passwords at the prompts:
+
+```sh
+base64 -w 0 brightledger-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo gi-os/BrightLedger
+base64 -w 0 brightledger.lineage | gh secret set SIGNING_LINEAGE_BASE64 --env release --repo gi-os/BrightLedger
+gh secret set KEYSTORE_PASSWORD --env release --repo gi-os/BrightLedger
+gh secret set KEY_ALIAS --env release --repo gi-os/BrightLedger --body brightledger-release
+gh secret set KEY_PASSWORD --env release --repo gi-os/BrightLedger
+```
+
+CI supplies only the new private key to `scripts/sign-release.sh` and checks that the APK's
+v3 lineage links both pins, preserves installed data, and disallows signer rollback. API 29+
+does not need v1/v2 signatures. Removing the old key from the branch does not remove it
+from Git history or protect installs that still trust it.
+
+Before re-enabling publishing, verify an in-place update from the last shipped build to a
+locally signed test APK with a greater `versionCode` on a device with no real bank data.
+Coordinate the BrightMarket migration: add the exact old-to-new `com.gios.brightledger`
+handover to [the index](https://github.com/gi-os/brightmarket-index/blob/HEAD/scripts/build_index.py)
+and ensure [the updater](https://github.com/gi-os/BrightMarket) accepts the installed
+predecessor for this transition. The index otherwise keeps the old release, and changing
+the catalog pin alone makes the current updater classify old installs as foreign.
+
 ## Licence
 
 MIT.
